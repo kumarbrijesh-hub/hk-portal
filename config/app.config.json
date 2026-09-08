@@ -1,0 +1,123 @@
+{
+  "_comment": "Central configuration. Nothing in src/ hard-codes these values. Values marked PENDING must be supplied before Google Sheet sync can run; the rest of the app works without them.",
+
+  "brand": {
+    "appName": "Blinkit Disruption",
+    "reportTitle": "ACTIVE DISRUPTIONS",
+    "timezone": "Asia/Kolkata"
+  },
+
+  "googleSheet": {
+    "_comment": "Either provide spreadsheetId (preferred) or the full sheet URL - the id is parsed out of the URL. Auth: service account via GOOGLE_SERVICE_ACCOUNT_JSON / GOOGLE_APPLICATION_CREDENTIALS env. Without credentials the app falls back to the public CSV export endpoint, which needs the sheet shared as 'anyone with the link can view'.",
+    "url": "PENDING",
+    "spreadsheetId": "PENDING",
+    "masterDataTab": "PENDING",
+    "headerRow": 1,
+    "syncIntervalMinutes": 7,
+    "columns": {
+      "_comment": "Map application field -> Google Sheet column header (case-insensitive, trimmed). Alternatively use a column letter like \"A\", \"B\". Update here only - no code change required.",
+      "outletId": "PENDING",
+      "storeName": "PENDING",
+      "city": "PENDING",
+      "mode": "PENDING",
+      "vendor": "PENDING",
+      "pocName": "PENDING",
+      "pocContact": "PENDING"
+    }
+  },
+
+  "ccPocOptions": [
+    "Palak",
+    "Gulshan",
+    "Muskan",
+    "Preeti",
+    "Orush",
+    "Chirag",
+    "Monu",
+    "Kunal",
+    "Nomita",
+    "Harsh"
+  ],
+
+  "buckets": [
+    "False Alarm / Invalid",
+    "Non Breakdown",
+    "Breakdown"
+  ],
+
+  "bucketsRequiringTicketId": [
+    "Breakdown"
+  ],
+
+  "statuses": [
+    "RAC Aligned",
+    "RAC Visited",
+    "OEM Aligned",
+    "OEM Visited",
+    "Resolved by RAC",
+    "Resolved by OEM",
+    "Resolved by Dealer",
+    "Resolved by CC",
+    "Auto Disable",
+    "Known Admin Issue",
+    "Disable",
+    "Disruption",
+    "Audit in Process"
+  ],
+
+  "inactiveStatuses": {
+    "_comment": "Spec rule 11: a disruption is ACTIVE unless its current status is one of these. Note 'Resolved by Dealer' is deliberately NOT here - per spec it stays ACTIVE.",
+    "values": [
+      "Resolved by RAC",
+      "Resolved by OEM",
+      "Resolved by CC",
+      "Disable"
+    ]
+  },
+
+  "statusesRequiringIssue": [
+    "Resolved by RAC",
+    "Resolved by OEM",
+    "Resolved by Dealer",
+    "Resolved by CC"
+  ],
+
+  "report": {
+    "_comment": "The hourly report splits active records into a main table and a secondary 'Auditing & Non-Admin' table. Statuses listed here render in the secondary table.",
+    "secondarySectionTitle": "Auditing & Non-Admin Disruptions",
+    "secondarySectionStatuses": [
+      "Audit in Process",
+      "Known Admin Issue"
+    ],
+    "breakdownBucket": "Breakdown",
+    "nonBreakdownBucket": "Non Breakdown"
+  },
+
+  "issueMaster": {
+    "_comment": "PENDING - real Issue / Sub Issue master to be supplied. Keys are Issues, values are their Sub Issues. Replace this whole object; no code change required.",
+    "_pending": true,
+    "Temperature Not Maintained": [
+      "Controller Faulty",
+      "PCB Faulty",
+      "Gas Leakage",
+      "Compressor Faulty",
+      "Condenser Choked",
+      "Door Not Closing Properly"
+    ],
+    "Ice Formation": [
+      "Coil Heater Faulty",
+      "Drain Heater Faulty",
+      "Defrost Timer Issue",
+      "Door Gasket Damaged"
+    ],
+    "Power Issue": [
+      "Main Power Supply Failure",
+      "DG Not Working",
+      "MCB Trip",
+      "Short Circuit"
+    ],
+    "Others": [
+      "Others"
+    ]
+  }
+}
