@@ -1,0 +1,26 @@
+{
+  "name": "blinkit-disruption",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Blinkit Disruption - operational disruption management system",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:server dev:web",
+    "dev:server": "npm run dev --workspace server",
+    "dev:web": "npm run dev --workspace web",
+    "build": "npm run build --workspace web && npm run build --workspace server",
+    "start": "npm run start --workspace server",
+    "typecheck": "npm run typecheck --workspace server && npm run typecheck --workspace web",
+    "seed": "npm run seed --workspace server",
+    "seed:demo": "npm run seed:demo --workspace server"
+  },
+  "devDependencies": {
+    "npm-run-all": "^4.1.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
