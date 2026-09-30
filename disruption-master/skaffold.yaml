@@ -1,0 +1,17 @@
+apiVersion: skaffold/v4beta11
+kind: Config
+metadata:
+  name: blinkit-disruption
+  annotations:
+    chef/subdomain: star-marmoset
+    chef/namespace: blinkit-apps-kumarbrijesh
+    chef/s3-prefix: s3://blinkit-ai-chef-builds/blinkit-apps-kumarbrijesh/blinkit-disruption/
+
+build:
+  artifacts:
+  - image: 501578625374.dkr.ecr.ap-south-1.amazonaws.com/chef/blinkit-apps-kumarbrijesh/blinkit-disruption/blinkit-disruption
+    context: .
+deploy:
+  kubectl:
+    manifests:
+      - k8s/*.yaml

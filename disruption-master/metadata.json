@@ -1,0 +1,6 @@
+{
+  "name": "Disruption Management System",
+  "description": "Operational Disruption Management System with live tracker, outlet master sync, and active disruption reporting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
