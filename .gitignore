@@ -4,7 +4,9 @@ build/
 .env
 .env.local
 *.log
-data/
+# Anchored to the repo root: unanchored "data/" also swallows nested
+# source folders such as disruption-master/src/data.
+/data/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
