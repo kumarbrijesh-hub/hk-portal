@@ -31,7 +31,106 @@ import {
 import { DEFAULT_CONFIG, INITIAL_OUTLETS } from './data/defaultConfig';
 import { INITIAL_DISRUPTIONS } from './data/initialDisruptions';
 
+interface AuthState {
+  authRequired: boolean;
+  authenticated: boolean;
+}
+
+/** Shown instead of the console when APP_PASSWORD is set and there is no session. */
+function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Sign in failed.');
+      }
+      setPassword('');
+      onSignedIn();
+    } catch (err: any) {
+      setError(err.message || 'Sign in failed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans">
+      <form
+        onSubmit={submit}
+        className="w-full max-w-sm bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden"
+      >
+        <div className="bg-slate-900 px-6 py-5 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-red-600 flex items-center justify-center text-white font-bold tracking-wider">
+            DMS
+          </div>
+          <div>
+            <h1 className="text-sm font-bold text-white">Disruption Management System</h1>
+            <p className="text-xs text-slate-400">Sign in to continue</p>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-4">
+          {error && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800">{error}</div>
+          )}
+
+          <div>
+            <label htmlFor="app-password" className="block text-xs font-semibold text-slate-700 mb-1">
+              Password
+            </label>
+            <input
+              id="app-password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 focus:ring-2 focus:ring-red-500 focus:border-red-500"
+              required
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={busy}
+            className="w-full px-4 py-2.5 rounded-lg bg-red-600 hover:bg-red-700 text-white font-semibold text-sm transition disabled:opacity-50"
+          >
+            {busy ? 'Signing in...' : 'Sign In'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 export default function App() {
+  // Access control: null until /api/auth/me answers, so nothing flashes first.
+  const [auth, setAuth] = useState<AuthState | null>(null);
+
+  const refreshAuth = useCallback(async () => {
+    try {
+      const res = await fetch('/api/auth/me');
+      setAuth(await res.json());
+    } catch {
+      setAuth({ authRequired: false, authenticated: true });
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshAuth();
+  }, [refreshAuth]);
+
   // Navigation
   const [activeTab, setActiveTab] = useState<'liveTracker' | 'activeDisruptions' | 'config'>('liveTracker');
 
@@ -93,11 +192,14 @@ export default function App() {
   }, [currentUser]);
 
   useEffect(() => {
+    // Wait for the auth answer so a gated app does not fire 401s on load.
+    if (!auth || (auth.authRequired && !auth.authenticated)) return;
     loadInitialData();
-  }, [loadInitialData]);
+  }, [loadInitialData, auth]);
 
   // Periodic polling for multi-user operational sync
   useEffect(() => {
+    if (!auth || (auth.authRequired && !auth.authenticated)) return;
     const pollInterval = setInterval(async () => {
       try {
         const [dList, sStatus] = await Promise.all([
@@ -112,7 +214,7 @@ export default function App() {
     }, 8000);
 
     return () => clearInterval(pollInterval);
-  }, []);
+  }, [auth]);
 
   // Manual Sync Now handler
   const handleSyncNow = async () => {
@@ -175,6 +277,18 @@ export default function App() {
 
   // Calculate live active count using strict rule
   const activeCount = disruptions.filter((d) => isDisruptionActive(d.currentStatus)).length;
+
+  if (auth === null) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center text-xs text-slate-500 font-sans">
+        Loading console...
+      </div>
+    );
+  }
+
+  if (auth.authRequired && !auth.authenticated) {
+    return <LoginScreen onSignedIn={refreshAuth} />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col font-sans">

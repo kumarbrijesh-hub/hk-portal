@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
 
 // Types and Defaults
@@ -14,6 +15,67 @@ const PORT = Number(process.env.PORT ?? 3000);
 // DATA_DIR is overridable so the JSON store can live on a mounted volume.
 const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'store.json');
+
+// --- Access control -------------------------------------------------------
+// Set APP_PASSWORD to put the whole app behind a shared password. Left unset,
+// the app stays open exactly as before, which keeps local preview friction-free.
+const APP_PASSWORD = process.env.APP_PASSWORD ?? '';
+const AUTH_REQUIRED = APP_PASSWORD.length > 0;
+const SESSION_SECRET =
+  process.env.SESSION_SECRET ?? (AUTH_REQUIRED ? crypto.createHash('sha256').update(APP_PASSWORD).digest('hex') : '');
+const SESSION_COOKIE = 'dms_session';
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // one shift
+
+function signSession(expiresAt: number): string {
+  const payload = String(expiresAt);
+  const mac = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('hex');
+  return `${payload}.${mac}`;
+}
+
+function sessionIsValid(token: string | undefined): boolean {
+  if (!token) return false;
+  const [payload, mac] = token.split('.');
+  if (!payload || !mac) return false;
+  const expected = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('hex');
+  const a = Buffer.from(mac);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return false;
+  const expiresAt = Number(payload);
+  return Number.isFinite(expiresAt) && expiresAt > Date.now();
+}
+
+function readCookie(header: string | undefined, name: string): string | undefined {
+  if (!header) return undefined;
+  for (const part of header.split(';')) {
+    const [k, ...v] = part.trim().split('=');
+    if (k === name) return decodeURIComponent(v.join('='));
+  }
+  return undefined;
+}
+
+// Enough to make password guessing impractical without pulling in a dependency.
+const loginAttempts = new Map<string, { count: number; firstAt: number }>();
+const LOGIN_WINDOW_MS = 5 * 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 10;
+
+function loginThrottled(ip: string): boolean {
+  const entry = loginAttempts.get(ip);
+  if (!entry) return false;
+  if (Date.now() - entry.firstAt > LOGIN_WINDOW_MS) {
+    loginAttempts.delete(ip);
+    return false;
+  }
+  return entry.count >= LOGIN_MAX_ATTEMPTS;
+}
+
+function recordFailedLogin(ip: string): void {
+  const entry = loginAttempts.get(ip);
+  if (!entry || Date.now() - entry.firstAt > LOGIN_WINDOW_MS) {
+    loginAttempts.set(ip, { count: 1, firstAt: Date.now() });
+  } else {
+    entry.count++;
+  }
+}
 
 interface DatabaseStore {
   outlets: OutletMaster[];
@@ -479,6 +541,58 @@ async function startServer() {
     res.json({ status: 'ok', time: new Date().toISOString() });
   });
 
+  // --- Auth ---
+
+  app.get('/api/auth/me', (req, res) => {
+    res.json({
+      authRequired: AUTH_REQUIRED,
+      authenticated: !AUTH_REQUIRED || sessionIsValid(readCookie(req.headers.cookie, SESSION_COOKIE)),
+    });
+  });
+
+  app.post('/api/auth/login', (req, res) => {
+    if (!AUTH_REQUIRED) {
+      return res.json({ authRequired: false, authenticated: true });
+    }
+
+    const ip = req.ip || 'unknown';
+    if (loginThrottled(ip)) {
+      return res.status(429).json({ error: 'Too many failed attempts. Try again in a few minutes.' });
+    }
+
+    const supplied = String(req.body?.password ?? '');
+    const a = Buffer.from(supplied);
+    const b = Buffer.from(APP_PASSWORD);
+    const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
+    if (!ok) {
+      recordFailedLogin(ip);
+      return res.status(401).json({ error: 'Incorrect password.' });
+    }
+
+    loginAttempts.delete(ip);
+    const expiresAt = Date.now() + SESSION_TTL_MS;
+    const secure = req.headers['x-forwarded-proto'] === 'https';
+    res.setHeader(
+      'Set-Cookie',
+      `${SESSION_COOKIE}=${encodeURIComponent(signSession(expiresAt))}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(
+        SESSION_TTL_MS / 1000
+      )}${secure ? '; Secure' : ''}`
+    );
+    res.json({ authRequired: true, authenticated: true });
+  });
+
+  app.post('/api/auth/logout', (req, res) => {
+    res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+    res.json({ authRequired: AUTH_REQUIRED, authenticated: false });
+  });
+
+  // Everything below this line needs a session when APP_PASSWORD is set.
+  app.use('/api', (req, res, next) => {
+    if (!AUTH_REQUIRED) return next();
+    if (sessionIsValid(readCookie(req.headers.cookie, SESSION_COOKIE))) return next();
+    return res.status(401).json({ error: 'Not signed in.' });
+  });
+
   // Outlets List & Search
   app.get('/api/outlets', (req, res) => {
     const q = ((req.query.q as string) || '').trim().toLowerCase();
@@ -631,6 +745,22 @@ async function startServer() {
       return res.status(400).json({ error: 'Live Update is mandatory.' });
     }
 
+    // Resolve the outlet against the synced master. A typo must not become a
+    // record with blank store/city/vendor that then shows up in the report.
+    const requestedOutletId = data.outletId.trim().toUpperCase();
+    const masterOutlet = db.outlets.find((o) => o.outletId.toUpperCase() === requestedOutletId);
+    if (!masterOutlet) {
+      return res.status(400).json({
+        error: `Outlet ID "${requestedOutletId}" is not in the synced master data. Check the ID, or run Sync Now if the sheet was just updated.`,
+      });
+    }
+
+    const frt = (value: unknown): number | undefined => {
+      if (value === undefined || value === null || value === '') return undefined;
+      const n = Number(value);
+      return Number.isFinite(n) && n >= 0 ? n : undefined;
+    };
+
     // Auto-generate Disruption ID: OutletID-YYMMDDHHMM
     let baseDisruptionId = data.disruptionId;
     if (!baseDisruptionId) {
@@ -645,12 +775,14 @@ async function startServer() {
       baseDisruptionId = `${cleanOutlet}-${yy}${mm}${dd}${hh}${min}`;
     }
 
-    // Duplicate check: Safe handling
-    let finalDisruptionId = baseDisruptionId;
-    let counter = 1;
-    while (db.disruptions.some((d) => d.disruptionId === finalDisruptionId)) {
-      finalDisruptionId = `${baseDisruptionId}-${counter}`;
-      counter++;
+    // Same outlet in the same minute is the same incident: point the operator at
+    // the existing record instead of creating a near-duplicate alongside it.
+    const finalDisruptionId = baseDisruptionId;
+    if (db.disruptions.some((d) => d.disruptionId === finalDisruptionId)) {
+      return res.status(409).json({
+        error: `Disruption ${finalDisruptionId} already exists for this outlet and start minute. Open that record and add a Live Update instead.`,
+        existingId: finalDisruptionId,
+      });
     }
 
     const initialHistoryEntry: DisruptionUpdateHistory = {
@@ -665,40 +797,43 @@ async function startServer() {
 
     const newDisruption: Disruption = {
       disruptionId: finalDisruptionId,
-      outletId: data.outletId.trim().toUpperCase(),
-      storeName: data.storeName || '',
-      city: data.city || '',
-      mode: data.mode || '',
-      vendor: data.vendor || '',
-      pocName: data.pocName || '',
-      pocContact: data.pocContact || '',
-      coldPocName2: data.coldPocName2 || data.pocName || '',
-      coldPocContact2: data.coldPocContact2 || data.pocContact || '',
-      amcCoverage: data.amcCoverage || '',
-      currentVendor: data.currentVendor || data.vendor || '',
-      lodL1Name: data.lodL1Name || '',
-      lodL1Email: data.lodL1Email || '',
-      lodL1Contact: data.lodL1Contact || '',
-      lodL2Name: data.lodL2Name || '',
-      lodL2Email: data.lodL2Email || '',
-      lodL2Contact: data.lodL2Contact || '',
-      lodL3Name: data.lodL3Name || '',
-      lodL3Email: data.lodL3Email || '',
-      lodL3Contact: data.lodL3Contact || '',
-      region: data.region || '',
-      mstRacName: data.mstRacName || '',
-      mstRacContact: data.mstRacContact || '',
+      outletId: masterOutlet.outletId,
+      // Master data is the source of truth for everything outlet-derived.
+      storeName: masterOutlet.storeName || '',
+      city: masterOutlet.city || '',
+      mode: masterOutlet.mode || '',
+      vendor: masterOutlet.vendor || '',
+      pocName: masterOutlet.pocName || '',
+      pocContact: masterOutlet.pocContact || '',
+      coldPocName2: masterOutlet.coldPocName2 || masterOutlet.pocName || '',
+      coldPocContact2: masterOutlet.coldPocContact2 || masterOutlet.pocContact || '',
+      amcCoverage: masterOutlet.amcCoverage || '',
+      currentVendor: masterOutlet.currentVendor || masterOutlet.vendor || '',
+      lodL1Name: masterOutlet.lodL1Name || '',
+      lodL1Email: masterOutlet.lodL1Email || '',
+      lodL1Contact: masterOutlet.lodL1Contact || '',
+      lodL2Name: masterOutlet.lodL2Name || '',
+      lodL2Email: masterOutlet.lodL2Email || '',
+      lodL2Contact: masterOutlet.lodL2Contact || '',
+      lodL3Name: masterOutlet.lodL3Name || '',
+      lodL3Email: masterOutlet.lodL3Email || '',
+      lodL3Contact: masterOutlet.lodL3Contact || '',
+      region: masterOutlet.region || '',
+      mstRacName: masterOutlet.mstRacName || '',
+      mstRacContact: masterOutlet.mstRacContact || '',
       remark: data.remark || '',
       cityLead: data.cityLead || '',
       regionalHead: data.regionalHead || '',
       week: data.week || '',
-      storeType: data.storeType || data.mode || '',
+      storeType: data.storeType || masterOutlet.mode || '',
       shift: data.shift || '',
       ticketMissing: data.ticketMissing || (data.ticketId ? 'No' : 'Yes'),
       parentTicketId: data.parentTicketId || data.ticketId || '',
       endTime: data.endTime || '',
       duration: data.duration || '',
       ticketClosedAt: data.ticketClosedAt || '',
+      ccFrtMins: frt(data.ccFrtMins),
+      mstFrtMins: frt(data.mstFrtMins),
       disruptionStartDateTime: data.disruptionStartDateTime || formattedIST,
       disruptionStartDate: data.disruptionStartDate,
       disruptionStartTime: data.disruptionStartTime,
@@ -860,9 +995,32 @@ async function startServer() {
       return res.status(400).json({ error: 'Disruption Ticket ID is mandatory for Breakdown.' });
     }
 
+    // The Disruption ID is derived from outlet + start minute, so letting either
+    // change here would leave the ID contradicting the record it names.
+    const startChanged =
+      (updates.disruptionStartDate !== undefined && updates.disruptionStartDate !== existing.disruptionStartDate) ||
+      (updates.disruptionStartTime !== undefined && updates.disruptionStartTime !== existing.disruptionStartTime) ||
+      (updates.outletId !== undefined &&
+        String(updates.outletId).trim().toUpperCase() !== existing.outletId.toUpperCase());
+    if (startChanged) {
+      return res.status(400).json({
+        error:
+          'Outlet ID and disruption start time cannot be changed — the Disruption ID is generated from them. Create a new record instead.',
+      });
+    }
+
+    const normaliseFrt = (next: unknown, current?: number): number | undefined => {
+      if (next === undefined) return current;
+      if (next === null || next === '') return undefined;
+      const n = Number(next);
+      return Number.isFinite(n) && n >= 0 ? n : current;
+    };
+
     db.disruptions[index] = {
       ...existing,
       ...updates,
+      ccFrtMins: normaliseFrt(updates.ccFrtMins, existing.ccFrtMins),
+      mstFrtMins: normaliseFrt(updates.mstFrtMins, existing.mstFrtMins),
       updatedAt: formattedIST,
       lastUpdatedAt: formattedIST,
       lastUpdatedBy: updates.updatedBy || existing.lastUpdatedBy,

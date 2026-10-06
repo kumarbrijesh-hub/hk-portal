@@ -131,6 +131,10 @@ export interface Disruption {
   duration?: string;
   ticketClosedAt?: string;
 
+  /** First response time in minutes, entered by the operator. */
+  ccFrtMins?: number;
+  mstFrtMins?: number;
+
   disruptionStartDateTime: string; // DD/MM/YYYY HH:MM:SS
   disruptionStartDate: string; // YYYY-MM-DD
   disruptionStartTime: string; // HH:MM:SS

@@ -162,14 +162,10 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
     const breakdownCount = breakdownDisruptions.length;
     const nonBreakdownCount = nonBreakdownDisruptions.length;
 
-    const breakdownDur = breakdownDisruptions.reduce(
-      (sum, d) => sum + calculateDurationHours(d.disruptionStartDateTime),
-      0
-    );
-    const nonBreakdownDur = nonBreakdownDisruptions.reduce(
-      (sum, d) => sum + calculateDurationHours(d.disruptionStartDateTime),
-      0
-    );
+    const sumDur = (rows: Disruption[]) =>
+      rows.reduce((sum, d) => sum + (calculateDurationHours(d.disruptionStartDateTime) ?? 0), 0);
+    const breakdownDur = sumDur(breakdownDisruptions);
+    const nonBreakdownDur = sumDur(nonBreakdownDisruptions);
     const totalDur = breakdownDur + nonBreakdownDur;
 
     const breakdownDurPct = totalDur > 0 ? ((breakdownDur / totalDur) * 100).toFixed(1) : '0.0';
@@ -179,10 +175,24 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
     const avgBreakdownDur = breakdownCount > 0 ? (breakdownDur / breakdownCount).toFixed(1) : '0.0';
     const avgNonBreakdownDur = nonBreakdownCount > 0 ? (nonBreakdownDur / nonBreakdownCount).toFixed(1) : '0.0';
 
+    // Averages over the records that actually carry a value, so a blank field
+    // lowers nothing and an empty subset reads as a dash rather than zero.
+    const avgFrt = (rows: Disruption[], pick: (d: Disruption) => number | undefined): string => {
+      const values = rows.map(pick).filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+      if (values.length === 0) return '-';
+      return (values.reduce((a, b) => a + b, 0) / values.length).toFixed(0);
+    };
+
     return {
       totalActive,
       breakdownCount,
       nonBreakdownCount,
+      avgCcFrt: avgFrt(filteredActiveDisruptions, (d) => d.ccFrtMins),
+      avgCcFrtBreakdown: avgFrt(breakdownDisruptions, (d) => d.ccFrtMins),
+      avgCcFrtNonBreakdown: avgFrt(nonBreakdownDisruptions, (d) => d.ccFrtMins),
+      avgMstFrt: avgFrt(filteredActiveDisruptions, (d) => d.mstFrtMins),
+      avgMstFrtBreakdown: avgFrt(breakdownDisruptions, (d) => d.mstFrtMins),
+      avgMstFrtNonBreakdown: avgFrt(nonBreakdownDisruptions, (d) => d.mstFrtMins),
       totalDur: totalDur.toFixed(1),
       breakdownDur: breakdownDur.toFixed(1),
       nonBreakdownDur: nonBreakdownDur.toFixed(1),
@@ -749,18 +759,22 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                 AVG MST FRT
               </span>
               <div className="text-3xl sm:text-4xl font-black text-blue-600 my-1.5 font-mono flex items-baseline justify-center gap-1">
-                <span>0</span>
+                <span>{profixStats.avgMstFrt}</span>
                 <span className="text-sm font-semibold text-slate-600">Mins</span>
               </div>
             </div>
             <div className="space-y-1 text-xs text-slate-600 border-t border-slate-100 pt-2 mt-1">
               <div className="flex items-center justify-between">
                 <span>Breakdown</span>
-                <span className="font-medium text-slate-700">0 m</span>
+                <span className="font-medium text-slate-700">
+                  {profixStats.avgMstFrtBreakdown === '-' ? '-' : `${profixStats.avgMstFrtBreakdown} m`}
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <span>Non Breakdown</span>
-                <span className="font-medium text-slate-700">-</span>
+                <span className="font-medium text-slate-700">
+                  {profixStats.avgMstFrtNonBreakdown === '-' ? '-' : `${profixStats.avgMstFrtNonBreakdown} m`}
+                </span>
               </div>
             </div>
           </div>
@@ -772,18 +786,22 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                 AVG CC FRT
               </span>
               <div className="text-3xl sm:text-4xl font-black text-blue-600 my-1.5 font-mono flex items-baseline justify-center gap-1">
-                <span>3</span>
+                <span>{profixStats.avgCcFrt}</span>
                 <span className="text-sm font-semibold text-slate-600">Mins</span>
               </div>
             </div>
             <div className="space-y-1 text-xs text-slate-600 border-t border-slate-100 pt-2 mt-1">
               <div className="flex items-center justify-between">
                 <span>Breakdown</span>
-                <span className="font-medium text-slate-700">3 m</span>
+                <span className="font-medium text-slate-700">
+                  {profixStats.avgCcFrtBreakdown === '-' ? '-' : `${profixStats.avgCcFrtBreakdown} m`}
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <span>Non Breakdown</span>
-                <span className="font-medium text-slate-700">4 m</span>
+                <span className="font-medium text-slate-700">
+                  {profixStats.avgCcFrtNonBreakdown === '-' ? '-' : `${profixStats.avgCcFrtNonBreakdown} m`}
+                </span>
               </div>
             </div>
           </div>
@@ -840,7 +858,8 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
               ) : (
                 standardActiveDisruptions.map((d, index) => {
                   const isPinned = activeRowId === d.disruptionId;
-                  const durHrs = calculateDurationHours(d.disruptionStartDateTime).toFixed(1);
+                  const durationHours = calculateDurationHours(d.disruptionStartDateTime);
+                  const durHrs = durationHours === null ? '-' : durationHours.toFixed(1);
 
                   return (
                     <tr
@@ -902,13 +921,13 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                       </td>
 
                       {/* CC FRT (M) */}
-                      <td className="py-3 px-3 text-center font-mono text-slate-700 font-medium">
-                        3
+                      <td className={`py-3 px-3 text-center font-mono ${d.ccFrtMins === undefined ? 'text-slate-400' : 'text-slate-700 font-medium'}`}>
+                        {d.ccFrtMins ?? '-'}
                       </td>
 
                       {/* MST FRT (M) */}
-                      <td className="py-3 px-3 text-center font-mono text-slate-400">
-                        -
+                      <td className={`py-3 px-3 text-center font-mono ${d.mstFrtMins === undefined ? 'text-slate-400' : 'text-slate-700 font-medium'}`}>
+                        {d.mstFrtMins ?? '-'}
                       </td>
 
                       {/* Ticket ID in bold blue */}
@@ -997,7 +1016,8 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                 <tbody className="divide-y divide-purple-100 bg-white">
                   {auditActiveDisruptions.map((d, index) => {
                     const isPinned = activeRowId === d.disruptionId;
-                    const durHrs = calculateDurationHours(d.disruptionStartDateTime).toFixed(1);
+                    const durationHours = calculateDurationHours(d.disruptionStartDateTime);
+                  const durHrs = durationHours === null ? '-' : durationHours.toFixed(1);
 
                     return (
                       <tr
@@ -1059,13 +1079,13 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                         </td>
 
                         {/* CC FRT (M) */}
-                        <td className="py-3 px-3 text-center font-mono text-slate-700 font-medium">
-                          3
+                        <td className={`py-3 px-3 text-center font-mono ${d.ccFrtMins === undefined ? 'text-slate-400' : 'text-slate-700 font-medium'}`}>
+                          {d.ccFrtMins ?? '-'}
                         </td>
 
                         {/* MST FRT (M) */}
-                        <td className="py-3 px-3 text-center font-mono text-slate-400">
-                          -
+                        <td className={`py-3 px-3 text-center font-mono ${d.mstFrtMins === undefined ? 'text-slate-400' : 'text-slate-700 font-medium'}`}>
+                          {d.mstFrtMins ?? '-'}
                         </td>
 
                         {/* Ticket ID in bold blue */}
@@ -1174,7 +1194,7 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                   <div>
                     <span className="text-slate-400 block text-[10px]">Duration</span>
                     <span className="font-mono font-bold text-rose-600 text-xs">
-                      {calculateDurationHours(d.disruptionStartDateTime).toFixed(1)} Hrs
+                      {calculateDurationHours(d.disruptionStartDateTime)?.toFixed(1) ?? '-'} Hrs
                     </span>
                   </div>
                 </div>

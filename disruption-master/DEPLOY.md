@@ -49,8 +49,28 @@ demo records), so no real data ships in the build.
    code change — it is stored in the JSON config.
 3. Replace the placeholder **Issue / Sub Issue** master on the same tab with the real list.
 
-## Known gap
+## Access control
 
-The app has no authentication — anyone who can reach the URL can create and edit
-records. Decide whether that is acceptable for this platform before putting real
-operational data in.
+Set `APP_PASSWORD` to put the whole app behind a shared password. Left unset, the
+app is open to anyone who can reach the URL — fine for a preview, not for real
+operational data.
+
+```yaml
+# k8s/deployment.yaml, in the container's env:
+- name: APP_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: blinkit-disruption-auth
+      key: password
+```
+
+```bash
+kubectl create secret generic blinkit-disruption-auth --from-literal=password='<pick one>'
+```
+
+With it set, every `/api/*` route except `/api/health` needs a session cookie,
+which `POST /api/auth/login` issues (HttpOnly, SameSite=Lax, 12 hours, `Secure`
+behind the platform's HTTPS). Failed logins are throttled to 10 per 5 minutes per
+IP. Note this is one shared password, not per-user accounts: the "Operator"
+dropdown in the header is still self-selected, so the audit trail records who
+*said* they made a change, not an independently authenticated identity.

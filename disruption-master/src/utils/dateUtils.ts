@@ -120,14 +120,16 @@ export function getProFixFileTimestamp(): string {
 }
 
 /**
- * Calculates duration in hours from disruption start time to now
+ * Duration in hours from the disruption start time to now, or null when the
+ * start time is missing or unparseable — the caller renders a dash rather than
+ * a made-up number.
  */
-export function calculateDurationHours(disruptionStartDateTime?: string, fallbackDuration?: string): number {
+export function calculateDurationHours(disruptionStartDateTime?: string, fallbackDuration?: string): number | null {
   if (fallbackDuration) {
     const num = parseFloat(fallbackDuration.replace(/[^0-9.]/g, ''));
     if (!isNaN(num) && num > 0) return num;
   }
-  if (!disruptionStartDateTime) return 1.5;
+  if (!disruptionStartDateTime) return null;
 
   try {
     const parts = disruptionStartDateTime.trim().split(/[\sT]+/);
@@ -160,16 +162,14 @@ export function calculateDurationHours(disruptionStartDateTime?: string, fallbac
     }
 
     if (startTimestamp > 0) {
-      const now = Date.now();
-      const diffMs = now - startTimestamp;
+      const diffMs = Date.now() - startTimestamp;
       if (diffMs > 0) {
-        const hours = diffMs / (1000 * 60 * 60);
-        return Math.max(0.1, Number(hours.toFixed(1)));
+        return Math.max(0.1, Number((diffMs / (1000 * 60 * 60)).toFixed(1)));
       }
     }
   } catch {
-    // ignore
+    // fall through to null
   }
 
-  return 2.5;
+  return null;
 }
