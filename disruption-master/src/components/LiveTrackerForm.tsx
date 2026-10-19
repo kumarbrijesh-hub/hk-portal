@@ -180,24 +180,21 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
       .slice(0, 10);
   }, [outlets, outletIdInput]);
 
-  // Generate Disruption ID dynamically
+  // Generate Disruption ID dynamically. Outlet + start minute identify the
+  // incident, so this never invents a variant ID to dodge a collision -- a
+  // collision means the incident is already logged.
   const generatedDisruptionId = useMemo(() => {
     if (!outletIdInput || !startDate || !startTime) return '';
-    const base = generateDisruptionId(outletIdInput, startDate, startTime);
-    if (!base) return '';
+    return generateDisruptionId(outletIdInput, startDate, startTime);
+  }, [outletIdInput, startDate, startTime]);
 
-    // Check if ID already exists and handle safely
-    const isDuplicate = existingDisruptions.some((d) => d.disruptionId === base);
-    if (isDuplicate) {
-      // Suffix with incremental duplicate identifier
-      let counter = 1;
-      while (existingDisruptions.some((d) => d.disruptionId === `${base}-${counter}`)) {
-        counter++;
-      }
-      return `${base}-${counter}`;
-    }
-    return base;
-  }, [outletIdInput, startDate, startTime, existingDisruptions]);
+  const duplicateOf = useMemo(
+    () =>
+      generatedDisruptionId
+        ? existingDisruptions.find((d) => d.disruptionId === generatedDisruptionId)
+        : undefined,
+    [generatedDisruptionId, existingDisruptions]
+  );
 
   // Conditional flags
   const isTicketIdMandatory = bucket === 'Breakdown';
@@ -296,6 +293,13 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
     // 4. Live Update validation
     if (!liveUpdateText.trim()) {
       setErrorMessage('Live Update is mandatory. Please describe the initial operational situation.');
+      return;
+    }
+    // 5. This outlet already has a disruption logged for this minute.
+    if (duplicateOf) {
+      setErrorMessage(
+        `${duplicateOf.disruptionId} is already logged for this outlet and start minute (${duplicateOf.currentStatus}). Add a Live Update to that record instead of creating a second one.`
+      );
       return;
     }
 
@@ -1010,6 +1014,11 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
                 />
                 <KeyRound className="w-4 h-4 text-amber-600 absolute left-3 top-2.5" />
               </div>
+              {duplicateOf && (
+                <p id="duplicate-id-warning" className="mt-1.5 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded px-2 py-1.5">
+                  Already logged ({duplicateOf.currentStatus}) — add a Live Update to that record instead.
+                </p>
+              )}
             </div>
           </div>
         </div>
