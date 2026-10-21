@@ -17,31 +17,95 @@ const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'store.json');
 
 // --- Access control -------------------------------------------------------
-// Set APP_PASSWORD to put the whole app behind a shared password. Left unset,
-// the app stays open exactly as before, which keeps local preview friction-free.
+// Sign-in is always on: the console needs an identity so it can stamp the CC
+// POC, the audit trail and the owner-only controls. Only work addresses are
+// accepted. APP_PASSWORD, when set, adds a shared secret on top of the address.
+const ALLOWED_EMAIL_DOMAINS = (process.env.ALLOWED_EMAIL_DOMAINS ?? 'zomato.com,grofers.com')
+  .split(',')
+  .map((d) => d.trim().toLowerCase())
+  .filter(Boolean);
+
+// Owners hold the admin rights: editing the issue master and deleting entries.
+const OWNER_EMAILS = (process.env.OWNER_EMAILS ?? 'kumarbrijesh@grofers.com')
+  .split(',')
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
+
 const APP_PASSWORD = process.env.APP_PASSWORD ?? '';
-const AUTH_REQUIRED = APP_PASSWORD.length > 0;
-const SESSION_SECRET =
-  process.env.SESSION_SECRET ?? (AUTH_REQUIRED ? crypto.createHash('sha256').update(APP_PASSWORD).digest('hex') : '');
+const PASSWORD_REQUIRED = APP_PASSWORD.length > 0;
 const SESSION_COOKIE = 'dms_session';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // one shift
 
-function signSession(expiresAt: number): string {
-  const payload = String(expiresAt);
+/**
+ * Signing key for session cookies. Generated once and kept on the data volume
+ * so a pod restart does not sign everyone out.
+ */
+const SESSION_SECRET = (() => {
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
+  const secretFile = path.join(DATA_DIR, '.session-secret');
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (fs.existsSync(secretFile)) return fs.readFileSync(secretFile, 'utf-8').trim();
+    const generated = crypto.randomBytes(32).toString('hex');
+    fs.writeFileSync(secretFile, generated, { encoding: 'utf-8', mode: 0o600 });
+    return generated;
+  } catch {
+    // Read-only volume: fall back to a per-process key. Sessions then end with
+    // the process, which is inconvenient but never insecure.
+    return crypto.randomBytes(32).toString('hex');
+  }
+})();
+
+export type UserRole = 'owner' | 'member';
+
+export interface SessionUser {
+  email: string;
+  name: string;
+  contact: string;
+  role: UserRole;
+}
+
+function isAllowedEmail(email: string): boolean {
+  const at = email.lastIndexOf('@');
+  if (at < 1) return false;
+  return ALLOWED_EMAIL_DOMAINS.includes(email.slice(at + 1).toLowerCase());
+}
+
+function roleFor(email: string): UserRole {
+  return OWNER_EMAILS.includes(email.toLowerCase()) ? 'owner' : 'member';
+}
+
+/** Turns kumarbrijesh@grofers.com into "Kumarbrijesh" as a first-run display name. */
+function nameFromEmail(email: string): string {
+  const local = email.slice(0, email.lastIndexOf('@'));
+  return local
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function signSession(email: string, expiresAt: number): string {
+  const payload = `${Buffer.from(email, 'utf-8').toString('base64url')}.${expiresAt}`;
   const mac = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('hex');
   return `${payload}.${mac}`;
 }
 
-function sessionIsValid(token: string | undefined): boolean {
-  if (!token) return false;
-  const [payload, mac] = token.split('.');
-  if (!payload || !mac) return false;
+/** Returns the email the token was signed for, or null when it is not usable. */
+function readSession(token: string | undefined): string | null {
+  if (!token) return null;
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const [encodedEmail, expiry, mac] = parts;
+  const payload = `${encodedEmail}.${expiry}`;
   const expected = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('hex');
   const a = Buffer.from(mac);
   const b = Buffer.from(expected);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return false;
-  const expiresAt = Number(payload);
-  return Number.isFinite(expiresAt) && expiresAt > Date.now();
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  const expiresAt = Number(expiry);
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return null;
+  const email = Buffer.from(encodedEmail, 'base64url').toString('utf-8').toLowerCase();
+  return isAllowedEmail(email) ? email : null;
 }
 
 function readCookie(header: string | undefined, name: string): string | undefined {
@@ -77,7 +141,16 @@ function recordFailedLogin(ip: string): void {
   }
 }
 
+interface StoredUser {
+  email: string;
+  name: string;
+  contact: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
 interface DatabaseStore {
+  users: StoredUser[];
   outlets: OutletMaster[];
   disruptions: Disruption[];
   config: AppConfig;
@@ -91,6 +164,7 @@ if (!fs.existsSync(DATA_DIR)) {
 
 // Initial DB state
 let db: DatabaseStore = {
+  users: [],
   outlets: [...INITIAL_OUTLETS],
   disruptions: [...INITIAL_DISRUPTIONS],
   config: { ...DEFAULT_CONFIG },
@@ -109,6 +183,7 @@ try {
   if (fs.existsSync(DB_FILE)) {
     const fileContent = fs.readFileSync(DB_FILE, 'utf-8');
     const parsed = JSON.parse(fileContent);
+    if (parsed.users) db.users = parsed.users;
     if (parsed.outlets) db.outlets = parsed.outlets;
     if (parsed.disruptions) db.disruptions = parsed.disruptions;
     if (parsed.config) {
@@ -131,6 +206,49 @@ function saveDb() {
   } catch (err) {
     console.error('Error persisting database to disk:', err);
   }
+}
+
+// --- User directory -------------------------------------------------------
+// One record per work address that has signed in. The display name starts off
+// derived from the address and can be corrected by the person it belongs to.
+
+function findStoredUser(email: string): StoredUser | undefined {
+  return db.users.find((u) => u.email === email.toLowerCase());
+}
+
+/** Looks the address up, creating the record on first sign-in. */
+function upsertUser(email: string): StoredUser {
+  const normalised = email.toLowerCase();
+  const { formattedIST } = getCurrentISTDate();
+  let user = findStoredUser(normalised);
+  if (!user) {
+    user = {
+      email: normalised,
+      name: nameFromEmail(normalised),
+      contact: '',
+      firstSeenAt: formattedIST,
+      lastSeenAt: formattedIST,
+    };
+    db.users.push(user);
+  } else {
+    user.lastSeenAt = formattedIST;
+  }
+  saveDb();
+  return user;
+}
+
+function toSessionUser(user: StoredUser): SessionUser {
+  return { email: user.email, name: user.name, contact: user.contact, role: roleFor(user.email) };
+}
+
+/** The signed-in user for a request, or null when the cookie is missing or stale. */
+function userFromRequest(req: express.Request): SessionUser | null {
+  const email = readSession(readCookie(req.headers.cookie, SESSION_COOKIE));
+  if (!email) return null;
+  const stored = findStoredUser(email);
+  return toSessionUser(
+    stored ?? { email, name: nameFromEmail(email), contact: '', firstSeenAt: '', lastSeenAt: '' }
+  );
 }
 
 // Helper to parse CSV line handling quotes
@@ -544,53 +662,103 @@ async function startServer() {
   // --- Auth ---
 
   app.get('/api/auth/me', (req, res) => {
+    const user = userFromRequest(req);
     res.json({
-      authRequired: AUTH_REQUIRED,
-      authenticated: !AUTH_REQUIRED || sessionIsValid(readCookie(req.headers.cookie, SESSION_COOKIE)),
+      authenticated: Boolean(user),
+      passwordRequired: PASSWORD_REQUIRED,
+      allowedDomains: ALLOWED_EMAIL_DOMAINS,
+      user,
     });
   });
 
   app.post('/api/auth/login', (req, res) => {
-    if (!AUTH_REQUIRED) {
-      return res.json({ authRequired: false, authenticated: true });
-    }
-
     const ip = req.ip || 'unknown';
     if (loginThrottled(ip)) {
       return res.status(429).json({ error: 'Too many failed attempts. Try again in a few minutes.' });
     }
 
-    const supplied = String(req.body?.password ?? '');
-    const a = Buffer.from(supplied);
-    const b = Buffer.from(APP_PASSWORD);
-    const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
-    if (!ok) {
+    const email = String(req.body?.email ?? '').trim().toLowerCase();
+    if (!email) {
+      return res.status(400).json({ error: 'Enter your work email address.' });
+    }
+    if (!isAllowedEmail(email)) {
       recordFailedLogin(ip);
-      return res.status(401).json({ error: 'Incorrect password.' });
+      return res.status(403).json({
+        error: `Only ${ALLOWED_EMAIL_DOMAINS.map((d) => '@' + d).join(' and ')} addresses can sign in.`,
+      });
+    }
+
+    if (PASSWORD_REQUIRED) {
+      const supplied = String(req.body?.password ?? '');
+      const a = Buffer.from(supplied);
+      const b = Buffer.from(APP_PASSWORD);
+      const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
+      if (!ok) {
+        recordFailedLogin(ip);
+        return res.status(401).json({ error: 'Incorrect password.' });
+      }
     }
 
     loginAttempts.delete(ip);
+    const user = upsertUser(email);
     const expiresAt = Date.now() + SESSION_TTL_MS;
     const secure = req.headers['x-forwarded-proto'] === 'https';
     res.setHeader(
       'Set-Cookie',
-      `${SESSION_COOKIE}=${encodeURIComponent(signSession(expiresAt))}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(
+      `${SESSION_COOKIE}=${encodeURIComponent(signSession(email, expiresAt))}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(
         SESSION_TTL_MS / 1000
       )}${secure ? '; Secure' : ''}`
     );
-    res.json({ authRequired: true, authenticated: true });
+    res.json({ authenticated: true, passwordRequired: PASSWORD_REQUIRED, user: toSessionUser(user) });
   });
 
   app.post('/api/auth/logout', (req, res) => {
     res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
-    res.json({ authRequired: AUTH_REQUIRED, authenticated: false });
+    res.json({ authenticated: false, passwordRequired: PASSWORD_REQUIRED, user: null });
   });
 
-  // Everything below this line needs a session when APP_PASSWORD is set.
+  // Everything below this line needs a signed-in work address.
   app.use('/api', (req, res, next) => {
-    if (!AUTH_REQUIRED) return next();
-    if (sessionIsValid(readCookie(req.headers.cookie, SESSION_COOKIE))) return next();
-    return res.status(401).json({ error: 'Not signed in.' });
+    const user = userFromRequest(req);
+    if (!user) return res.status(401).json({ error: 'Not signed in.' });
+    res.locals.user = user;
+    next();
+  });
+
+  /** The signed-in user on a guarded route. */
+  const actor = (res: express.Response): SessionUser => res.locals.user as SessionUser;
+
+  /** Guards the controls only the owner account may use. */
+  const ownerOnly: express.RequestHandler = (req, res, next) => {
+    if (actor(res).role !== 'owner') {
+      return res.status(403).json({ error: 'Only the owner account can change this.' });
+    }
+    next();
+  };
+
+  // --- Signed-in user's own profile ---
+
+  // The display name is what lands in the CC POC column, so let people correct it.
+  app.put('/api/users/me', (req, res) => {
+    const me = actor(res);
+    const stored = findStoredUser(me.email) ?? upsertUser(me.email);
+    const name = String(req.body?.name ?? '').trim();
+    if (!name) {
+      return res.status(400).json({ error: 'Name cannot be empty.' });
+    }
+    stored.name = name;
+    if (req.body?.contact !== undefined) {
+      stored.contact = String(req.body.contact).trim();
+    }
+    saveDb();
+    res.json({ success: true, user: toSessionUser(stored) });
+  });
+
+  // Owner view of everyone who has signed in, for the CC POC name list.
+  app.get('/api/users', (req, res) => {
+    res.json({
+      users: db.users.map((u) => ({ ...toSessionUser(u), lastSeenAt: u.lastSeenAt })),
+    });
   });
 
   // Outlets List & Search
@@ -633,8 +801,8 @@ async function startServer() {
     });
   });
 
-  // Manual Outlet Seed / CSV / Google Sheet Paste upload
-  app.post('/api/outlets/bulk-upload', (req, res) => {
+  // Replaces the whole outlet master, so it is an owner-only action.
+  app.post('/api/outlets/bulk-upload', ownerOnly, (req, res) => {
     const { outlets } = req.body;
     if (!Array.isArray(outlets) || outlets.length === 0) {
       return res.status(400).json({ error: 'Provide an array of outlet objects' });
@@ -687,7 +855,8 @@ async function startServer() {
     res.json(db.config);
   });
 
-  app.post('/api/config', (req, res) => {
+  // Master settings, including the Issue / Sub-issue list, are the owner's alone.
+  app.post('/api/config', ownerOnly, (req, res) => {
     const updated = req.body;
     db.config = {
       ...db.config,
@@ -1028,6 +1197,20 @@ async function startServer() {
 
     saveDb();
     res.json({ message: 'Disruption updated successfully.', disruption: db.disruptions[index] });
+  });
+
+  // Removing a record is destructive and unlogged, so it stays with the owner.
+  app.delete('/api/disruptions/:id', ownerOnly, (req, res) => {
+    const disruptionId = req.params.id;
+    const index = db.disruptions.findIndex((d) => d.disruptionId === disruptionId);
+    if (index === -1) {
+      return res.status(404).json({ error: 'Disruption not found.' });
+    }
+
+    const [removed] = db.disruptions.splice(index, 1);
+    saveDb();
+    console.log(`Disruption ${removed.disruptionId} deleted by ${actor(res).email}`);
+    res.json({ message: `Disruption ${removed.disruptionId} deleted.`, disruptionId: removed.disruptionId });
   });
 
   // LIVE DATA EXPORT & SYNC FOR GOOGLE SHEET "Live_data" TAB

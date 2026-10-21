@@ -51,6 +51,23 @@ export function isDisruptionActive(status: CurrentStatus | string): boolean {
   return !INACTIVE_STATUSES.includes(status as CurrentStatus);
 }
 
+export type UserRole = 'owner' | 'member';
+
+/** The signed-in operator, as reported by /api/auth/me. */
+export interface SessionUser {
+  email: string;
+  name: string;
+  contact: string;
+  role: UserRole;
+}
+
+export interface AuthState {
+  authenticated: boolean;
+  passwordRequired: boolean;
+  allowedDomains: string[];
+  user: SessionUser | null;
+}
+
 export interface OutletMaster {
   outletId: string;
   storeName: string;

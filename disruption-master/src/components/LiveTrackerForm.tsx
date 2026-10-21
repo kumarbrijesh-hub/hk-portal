@@ -30,9 +30,10 @@ import { formatDateTimeIST, getCurrentISTDate } from '../utils/dateUtils';
 
 interface LiveTrackerFormProps {
   outlets: OutletMaster[];
-  ccPocOptions: string[];
   issueMaster: Record<string, string[]>;
+  /** Display name of the signed-in operator; stamped as the CC POC. */
   currentUser: string;
+  currentUserEmail: string;
   existingDisruptions: Disruption[];
   onSubmitSuccess: (disruption: Disruption) => void;
   onOpenSyncModal?: () => void;
@@ -40,9 +41,9 @@ interface LiveTrackerFormProps {
 
 export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
   outlets,
-  ccPocOptions,
   issueMaster,
   currentUser,
+  currentUserEmail,
   existingDisruptions,
   onSubmitSuccess,
   onOpenSyncModal,
@@ -81,8 +82,8 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
   const [startDate, setStartDate] = useState(initialIST.dateStr); // YYYY-MM-DD
   const [startTime, setStartTime] = useState(initialIST.timeStr); // HH:MM:SS
 
-  // Other fields
-  const [ccPoc, setCcPoc] = useState(currentUser || ccPocOptions[0] || 'Chirag');
+  // Other fields. The CC POC is the signed-in operator, so there is nothing to pick.
+  const ccPoc = currentUser;
   const [bucket, setBucket] = useState<BucketType>('Non Breakdown');
   const [ticketId, setTicketId] = useState('');
   const [currentStatus, setCurrentStatus] = useState<CurrentStatus>('No Update');
@@ -97,13 +98,6 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<{ id: string; msg: string } | null>(null);
-
-  // Synchronize ccPoc with currentUser when currentUser changes (if not modified)
-  useEffect(() => {
-    if (currentUser && ccPocOptions.includes(currentUser)) {
-      setCcPoc(currentUser);
-    }
-  }, [currentUser, ccPocOptions]);
 
   // Fast Outlet Lookup when typing or selecting Outlet ID
   useEffect(() => {
@@ -1032,27 +1026,18 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {/* CC POC Dropdown */}
+            {/* CC POC — taken from the signed-in account, not entered by hand. */}
             <div>
-              <label htmlFor="cc-poc-select" className="block text-xs font-semibold text-slate-700 mb-1">
-                CC POC <span className="text-rose-500">*</span>
-              </label>
-              <div className="relative">
-                <select
-                  id="cc-poc-select"
-                  value={ccPoc}
-                  onChange={(e) => setCcPoc(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-red-500 font-medium"
-                  required
-                >
-                  {ccPocOptions.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-                <UserCheck className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <label className="block text-xs font-semibold text-slate-700 mb-1">CC POC</label>
+              <div
+                id="cc-poc-display"
+                className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-200 bg-slate-50 relative"
+                title={`Signed in as ${currentUserEmail}`}
+              >
+                <UserCheck className="w-4 h-4 text-emerald-500 absolute left-3 top-2.5" />
+                <div className="font-semibold text-slate-800 truncate">{ccPoc || 'Unknown operator'}</div>
               </div>
+              <p className="mt-1 text-[10px] text-slate-500 font-mono truncate">{currentUserEmail}</p>
             </div>
 
             {/* Bucket Dropdown */}

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   RefreshCw,
   AlertTriangle,
@@ -9,22 +9,142 @@ import {
   Clock,
   Layers,
   FileSpreadsheet,
+  BarChart3,
+  LogOut,
+  Pencil,
+  ShieldCheck,
+  Check,
+  X,
 } from 'lucide-react';
-import { SyncStatus } from '../types';
+import { SessionUser, SyncStatus } from '../types';
+
+export type AppTab = 'liveTracker' | 'activeDisruptions' | 'summary' | 'config';
 
 interface HeaderProps {
-  activeTab: 'liveTracker' | 'activeDisruptions' | 'config';
-  setActiveTab: (tab: 'liveTracker' | 'activeDisruptions' | 'config') => void;
+  activeTab: AppTab;
+  setActiveTab: (tab: AppTab) => void;
   syncStatus: SyncStatus;
   isSyncing: boolean;
   onSyncNow: () => void;
   onOpenConfig: () => void;
-  currentUser: string;
-  onSelectUser: (user: string) => void;
-  userOptions: string[];
+  sessionUser: SessionUser | null;
+  onSaveProfile: (name: string, contact: string) => Promise<void> | void;
+  onSignOut: () => void;
   activeCount: number;
   totalCount: number;
 }
+
+/**
+ * Signed-in identity chip. The name here is what gets stamped on new entries as
+ * the CC POC, so it is correctable in place.
+ */
+const OperatorChip: React.FC<{
+  sessionUser: SessionUser;
+  onSaveProfile: (name: string, contact: string) => Promise<void> | void;
+  onSignOut: () => void;
+}> = ({ sessionUser, onSaveProfile, onSignOut }) => {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(sessionUser.name);
+  const [contact, setContact] = useState(sessionUser.contact);
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    try {
+      await onSaveProfile(trimmed, contact.trim());
+      setEditing(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancel = () => {
+    setName(sessionUser.name);
+    setContact(sessionUser.contact);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded-lg border border-indigo-500/60 text-xs">
+        <input
+          id="operator-name-input"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Display name"
+          className="bg-slate-900 text-white rounded border border-slate-700 px-2 py-1 w-36 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          autoFocus
+        />
+        <input
+          id="operator-contact-input"
+          value={contact}
+          onChange={(e) => setContact(e.target.value)}
+          placeholder="Contact (optional)"
+          className="bg-slate-900 text-white rounded border border-slate-700 px-2 py-1 w-32 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        />
+        <button
+          type="button"
+          onClick={save}
+          disabled={busy}
+          title="Save name"
+          className="p-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50"
+        >
+          <Check className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={cancel}
+          title="Cancel"
+          className="p-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-200"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700 text-xs">
+      <User className="w-4 h-4 text-indigo-400 shrink-0" />
+      <div className="flex flex-col leading-tight min-w-0">
+        <span className="font-semibold text-white truncate max-w-[12rem]">{sessionUser.name}</span>
+        <span className="text-[11px] text-slate-400 font-mono truncate max-w-[12rem]">{sessionUser.email}</span>
+      </div>
+
+      {sessionUser.role === 'owner' && (
+        <span
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold"
+          title="Owner: can edit masters and delete entries"
+        >
+          <ShieldCheck className="w-3 h-3" />
+          OWNER
+        </span>
+      )}
+
+      <button
+        id="operator-edit-button"
+        type="button"
+        onClick={() => setEditing(true)}
+        title="Edit how your name appears on entries"
+        className="p-1 rounded hover:bg-slate-700 text-slate-300"
+      >
+        <Pencil className="w-3.5 h-3.5" />
+      </button>
+
+      <button
+        id="sign-out-button"
+        type="button"
+        onClick={onSignOut}
+        title="Sign out"
+        className="p-1 rounded hover:bg-slate-700 text-slate-300"
+      >
+        <LogOut className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+};
 
 export const Header: React.FC<HeaderProps> = ({
   activeTab,
@@ -33,17 +153,17 @@ export const Header: React.FC<HeaderProps> = ({
   isSyncing,
   onSyncNow,
   onOpenConfig,
-  currentUser,
-  onSelectUser,
-  userOptions,
+  sessionUser,
+  onSaveProfile,
+  onSignOut,
   activeCount,
   totalCount,
 }) => {
   return (
     <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-40 shadow-md">
       {/* Top Bar: Title, Sync Banner, User Attribution */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+      <div className="w-full px-4 sm:px-6 xl:px-8 py-3">
+        <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
           {/* Logo & System Title */}
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-red-600 flex items-center justify-center text-white shadow-inner font-bold text-lg tracking-wider">
@@ -56,7 +176,7 @@ export const Header: React.FC<HeaderProps> = ({
                   LIVE OPS
                 </span>
               </div>
-              <p className="text-xs text-slate-400">Real-time incident response, master lookup & sync console</p>
+              <p className="text-xs text-slate-400">Real-time incident response, master lookup &amp; sync console</p>
             </div>
           </div>
 
@@ -87,9 +207,7 @@ export const Header: React.FC<HeaderProps> = ({
             {/* Records cached */}
             <div className="flex flex-col">
               <span className="text-[11px] text-slate-400">Master Records:</span>
-              <span className="font-semibold text-emerald-300">
-                {syncStatus.recordsCount} Outlets Cached
-              </span>
+              <span className="font-semibold text-emerald-300">{syncStatus.recordsCount} Outlets Cached</span>
             </div>
 
             <div className="hidden sm:block h-6 w-px bg-slate-700" />
@@ -120,23 +238,10 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           </div>
 
-          {/* User / CC POC Operator switcher */}
-          <div className="flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700 text-xs">
-            <User className="w-4 h-4 text-indigo-400 shrink-0" />
-            <span className="text-slate-400">Operator:</span>
-            <select
-              id="header-user-select"
-              value={currentUser}
-              onChange={(e) => onSelectUser(e.target.value)}
-              className="bg-slate-900 text-white font-medium rounded border border-slate-700 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            >
-              {userOptions.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* Signed-in operator */}
+          {sessionUser && (
+            <OperatorChip sessionUser={sessionUser} onSaveProfile={onSaveProfile} onSignOut={onSignOut} />
+          )}
         </div>
 
         {/* Navigation Tabs */}
@@ -184,6 +289,20 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
           <button
+            id="nav-summary"
+            type="button"
+            onClick={() => setActiveTab('summary')}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all whitespace-nowrap ${
+              activeTab === 'summary'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            <span>Performance Summary</span>
+          </button>
+
+          <button
             id="nav-sheet-config"
             type="button"
             onClick={() => setActiveTab('config')}
@@ -194,7 +313,7 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-            <span>Google Sheet & Masters</span>
+            <span>Google Sheet &amp; Masters</span>
           </button>
         </div>
       </div>

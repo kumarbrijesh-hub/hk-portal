@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Header } from './components/Header';
+import { AppTab, Header } from './components/Header';
 import { LiveTrackerForm } from './components/LiveTrackerForm';
 import { LiveTrackerTable } from './components/LiveTrackerTable';
 import { ActiveDisruptionsView } from './components/ActiveDisruptionsView';
@@ -14,9 +14,11 @@ import { UpdateHistoryModal } from './components/UpdateHistoryModal';
 import { SyncSheetModal } from './components/SyncSheetModal';
 import {
   AppConfig,
+  AuthState,
   Disruption,
   isDisruptionActive,
   OutletMaster,
+  SessionUser,
   SyncStatus,
 } from './types';
 import {
@@ -31,16 +33,14 @@ import {
 import { DEFAULT_CONFIG, INITIAL_OUTLETS } from './data/defaultConfig';
 import { INITIAL_DISRUPTIONS } from './data/initialDisruptions';
 
-interface AuthState {
-  authRequired: boolean;
-  authenticated: boolean;
-}
-
-/** Shown instead of the console when APP_PASSWORD is set and there is no session. */
-function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
+/** Sign-in gate. Only work addresses on the allowed domains get through. */
+function LoginScreen({ auth, onSignedIn }: { auth: AuthState; onSignedIn: () => void }) {
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const domainHint = auth.allowedDomains.map((d) => `@${d}`).join(' or ');
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,7 +50,7 @@ function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ email, password }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -77,7 +77,7 @@ function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
           </div>
           <div>
             <h1 className="text-sm font-bold text-white">Disruption Management System</h1>
-            <p className="text-xs text-slate-400">Sign in to continue</p>
+            <p className="text-xs text-slate-400">Sign in with your work email</p>
           </div>
         </div>
 
@@ -87,19 +87,38 @@ function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
           )}
 
           <div>
-            <label htmlFor="app-password" className="block text-xs font-semibold text-slate-700 mb-1">
-              Password
+            <label htmlFor="app-email" className="block text-xs font-semibold text-slate-700 mb-1">
+              Work Email
             </label>
             <input
-              id="app-password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              id="app-email"
+              type="email"
+              autoComplete="username"
+              placeholder={`name${auth.allowedDomains[0] ? '@' + auth.allowedDomains[0] : ''}`}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 focus:ring-2 focus:ring-red-500 focus:border-red-500"
               required
             />
+            <p className="mt-1 text-[11px] text-slate-500">Only {domainHint} addresses are allowed.</p>
           </div>
+
+          {auth.passwordRequired && (
+            <div>
+              <label htmlFor="app-password" className="block text-xs font-semibold text-slate-700 mb-1">
+                Team Password
+              </label>
+              <input
+                id="app-password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                required
+              />
+            </div>
+          )}
 
           <button
             type="submit"
@@ -123,16 +142,24 @@ export default function App() {
       const res = await fetch('/api/auth/me');
       setAuth(await res.json());
     } catch {
-      setAuth({ authRequired: false, authenticated: true });
+      setAuth({ authenticated: false, passwordRequired: false, allowedDomains: [], user: null });
     }
   }, []);
+
+  const handleSignOut = useCallback(async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } finally {
+      refreshAuth();
+    }
+  }, [refreshAuth]);
 
   useEffect(() => {
     refreshAuth();
   }, [refreshAuth]);
 
   // Navigation
-  const [activeTab, setActiveTab] = useState<'liveTracker' | 'activeDisruptions' | 'config'>('liveTracker');
+  const [activeTab, setActiveTab] = useState<AppTab>('liveTracker');
 
   // Core Data
   const [disruptions, setDisruptions] = useState<Disruption[]>(INITIAL_DISRUPTIONS);
@@ -146,8 +173,26 @@ export default function App() {
     errorDetails: null,
   });
 
-  // Current logged in operator (CC POC)
-  const [currentUser, setCurrentUser] = useState<string>('Chirag');
+  // The CC POC is whoever is signed in — never typed in by hand.
+  const sessionUser: SessionUser | null = auth?.user ?? null;
+  const currentUser = sessionUser?.name ?? '';
+  const isOwner = sessionUser?.role === 'owner';
+
+  /** Saves a corrected display name; it is what shows up in the CC POC column. */
+  const handleSaveProfile = async (name: string, contact: string) => {
+    const res = await fetch('/api/users/me', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, contact }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showToast('Could Not Save Name', data.error || 'Please try again.', 'error');
+      return;
+    }
+    setAuth((prev) => (prev ? { ...prev, user: data.user } : prev));
+    showToast('Name Updated', `You will appear as "${data.user.name}" on new entries.`, 'success');
+  };
 
   // UI state
   const [isSyncing, setIsSyncing] = useState(false);
@@ -179,9 +224,6 @@ export default function App() {
       }
       if (fetchedConfig) {
         setConfig(fetchedConfig);
-        if (fetchedConfig.ccPocOptions?.length > 0 && !fetchedConfig.ccPocOptions.includes(currentUser)) {
-          setCurrentUser(fetchedConfig.ccPocOptions[0]);
-        }
       }
       if (fetchedStatus) {
         setSyncStatus(fetchedStatus);
@@ -189,17 +231,17 @@ export default function App() {
     } catch (err) {
       console.warn('Error loading initial data:', err);
     }
-  }, [currentUser]);
+  }, []);
 
   useEffect(() => {
     // Wait for the auth answer so a gated app does not fire 401s on load.
-    if (!auth || (auth.authRequired && !auth.authenticated)) return;
+    if (!auth?.authenticated) return;
     loadInitialData();
   }, [loadInitialData, auth]);
 
   // Periodic polling for multi-user operational sync
   useEffect(() => {
-    if (!auth || (auth.authRequired && !auth.authenticated)) return;
+    if (!auth?.authenticated) return;
     const pollInterval = setInterval(async () => {
       try {
         const [dList, sStatus] = await Promise.all([
@@ -286,8 +328,8 @@ export default function App() {
     );
   }
 
-  if (auth.authRequired && !auth.authenticated) {
-    return <LoginScreen onSignedIn={refreshAuth} />;
+  if (!auth.authenticated) {
+    return <LoginScreen auth={auth} onSignedIn={refreshAuth} />;
   }
 
   return (
@@ -329,24 +371,24 @@ export default function App() {
         isSyncing={isSyncing}
         onSyncNow={handleSyncNow}
         onOpenConfig={() => setActiveTab('config')}
-        currentUser={currentUser}
-        onSelectUser={setCurrentUser}
-        userOptions={config.ccPocOptions}
+        sessionUser={sessionUser}
+        onSaveProfile={handleSaveProfile}
+        onSignOut={handleSignOut}
         activeCount={activeCount}
         totalCount={disruptions.length}
       />
 
-      {/* Main App Body */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      {/* Main App Body — full desktop width, no 1280px cap. */}
+      <main className="flex-1 w-full px-4 sm:px-6 xl:px-8 py-6">
         {/* TAB 1: LIVE TRACKER */}
         {activeTab === 'liveTracker' && (
           <div className="space-y-8">
             {/* Form */}
             <LiveTrackerForm
               outlets={outlets}
-              ccPocOptions={config.ccPocOptions}
               issueMaster={config.issueMaster}
               currentUser={currentUser}
+              currentUserEmail={sessionUser?.email ?? ''}
               existingDisruptions={disruptions}
               onSubmitSuccess={handleDisruptionCreated}
               onOpenSyncModal={() => setIsSyncSheetModalOpen(true)}
@@ -425,10 +467,10 @@ export default function App() {
 
       {/* Footer */}
       <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <div className="w-full px-4 sm:px-6 xl:px-8 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>Disruption Management System • Operations Console</span>
           <span className="font-mono text-[11px] text-slate-400">
-            Current Operator: {currentUser} | Timezone: Asia/Kolkata (IST)
+            Signed in as {sessionUser?.email ?? 'unknown'} | Timezone: Asia/Kolkata (IST)
           </span>
         </div>
       </footer>
