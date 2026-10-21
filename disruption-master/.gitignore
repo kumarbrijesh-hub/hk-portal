@@ -6,3 +6,5 @@ coverage/
 *.log
 .env*
 !.env.example
+appsrc.tar.gz
+appsrc.part-*.gz

@@ -2,10 +2,20 @@
 FROM node:22-bookworm-slim AS build
 
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm install --no-audit --no-fund
-
 COPY . .
+# The MCP deploy path stages the sources as a split tarball: that connector
+# uploads file contents as JSON text, which cannot round-trip ~280 KB of source
+# byte-exactly. When the overlay parts are present they are reassembled and
+# replace the staged copies with the exact repository bytes. The local CLI path
+# never ships them and skips this step.
+RUN if ls appsrc.part-*.gz >/dev/null 2>&1; then \
+      cat appsrc.part-*.gz > appsrc.tar.gz && rm -f appsrc.part-*.gz; \
+    fi; \
+    if [ -f appsrc.tar.gz ]; then \
+      tar -xzf appsrc.tar.gz && rm -f appsrc.tar.gz; \
+    fi
+
+RUN npm install --no-audit --no-fund
 RUN npm run build
 
 FROM node:22-bookworm-slim AS runtime
@@ -16,7 +26,7 @@ ENV PORT=8080
 # JSON store lives on a mounted volume so records survive restarts.
 ENV DATA_DIR=/data
 
-COPY package.json package-lock.json* ./
+COPY --from=build /app/package.json /app/package-lock.json* ./
 RUN npm install --omit=dev --no-audit --no-fund
 
 COPY --from=build /app/dist ./dist
