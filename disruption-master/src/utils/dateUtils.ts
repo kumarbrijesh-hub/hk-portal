@@ -91,9 +91,9 @@ export function formatDateTimeIST(dateStr: string, timeStr: string): string {
 }
 
 /**
- * Returns formatted timestamp for ProFix report header: e.g. "8 Sept 2026, 10:59 pm"
+ * Returns formatted timestamp for the report header: e.g. "8 Sept 2026, 10:59 pm"
  */
-export function formatProFixGeneratedTimestamp(): string {
+export function formatReportGeneratedTimestamp(): string {
   const now = new Date();
   const options: Intl.DateTimeFormatOptions = {
     timeZone: 'Asia/Kolkata',
@@ -110,9 +110,9 @@ export function formatProFixGeneratedTimestamp(): string {
 }
 
 /**
- * Returns safe timestamp for ProFix filename: e.g. "20260908_2259"
+ * Returns safe timestamp for report filenames: e.g. "20260908_2259"
  */
-export function getProFixFileTimestamp(): string {
+export function getReportFileTimestamp(): string {
   const { dateStr, timeStr } = getCurrentISTDate();
   const yyyymmdd = dateStr.replace(/-/g, '');
   const hhmm = timeStr.replace(/:/g, '').slice(0, 4);

@@ -2,8 +2,8 @@ import { Disruption } from '../types';
 
 export const INITIAL_DISRUPTIONS: Disruption[] = [
   {
-    disruptionId: 'OUT12345-2609081015',
-    outletId: 'OUT12345',
+    disruptionId: 'ES100-2609081015',
+    outletId: 'ES100',
     storeName: 'Cyber City Sector 24',
     city: 'Gurugram',
     mode: 'Dark Store',
@@ -26,7 +26,7 @@ export const INITIAL_DISRUPTIONS: Disruption[] = [
     updateHistory: [
       {
         updateId: 'UPD-1',
-        disruptionId: 'OUT12345-2609081015',
+        disruptionId: 'ES100-2609081015',
         updateText: 'Store reported chiller failure. Temperature rising above threshold.',
         updatedBy: 'Chirag',
         updatedAt: '08/09/2026 10:15:20',
@@ -35,7 +35,7 @@ export const INITIAL_DISRUPTIONS: Disruption[] = [
       },
       {
         updateId: 'UPD-2',
-        disruptionId: 'OUT12345-2609081015',
+        disruptionId: 'ES100-2609081015',
         updateText: 'RAC aligned. Technician Rajesh assigned, ETA 45 mins.',
         updatedBy: 'Chirag',
         updatedAt: '08/09/2026 10:45:12',
@@ -45,8 +45,8 @@ export const INITIAL_DISRUPTIONS: Disruption[] = [
     ],
   },
   {
-    disruptionId: 'OUT10021-2609080920',
-    outletId: 'OUT10021',
+    disruptionId: 'ES2-2609080920',
+    outletId: 'ES2',
     storeName: 'Koramangala 4th Block Hub',
     city: 'Bengaluru',
     mode: 'Dark Store',
@@ -68,7 +68,7 @@ export const INITIAL_DISRUPTIONS: Disruption[] = [
     updateHistory: [
       {
         updateId: 'UPD-3',
-        disruptionId: 'OUT10021-2609080920',
+        disruptionId: 'ES2-2609080920',
         updateText: 'Primary power line fluctuation causing intermittent trips.',
         updatedBy: 'Palak',
         updatedAt: '08/09/2026 09:20:18',
@@ -77,7 +77,7 @@ export const INITIAL_DISRUPTIONS: Disruption[] = [
       },
       {
         updateId: 'UPD-4',
-        disruptionId: 'OUT10021-2609080920',
+        disruptionId: 'ES2-2609080920',
         updateText: 'OEM technician at site. Replacing primary contactor.',
         updatedBy: 'Palak',
         updatedAt: '08/09/2026 11:10:05',
@@ -87,8 +87,8 @@ export const INITIAL_DISRUPTIONS: Disruption[] = [
     ],
   },
   {
-    disruptionId: 'OUT30105-2609080830',
-    outletId: 'OUT30105',
+    disruptionId: 'ES91-2609080830',
+    outletId: 'ES91',
     storeName: 'Viman Nagar Phoenix',
     city: 'Pune',
     mode: 'Dark Store',
@@ -111,7 +111,7 @@ export const INITIAL_DISRUPTIONS: Disruption[] = [
     updateHistory: [
       {
         updateId: 'UPD-5',
-        disruptionId: 'OUT30105-2609080830',
+        disruptionId: 'ES91-2609080830',
         updateText: 'High temperature alert. Auto-disable triggered on customer storefront.',
         updatedBy: 'Gulshan',
         updatedAt: '08/09/2026 08:35:10',
@@ -121,8 +121,8 @@ export const INITIAL_DISRUPTIONS: Disruption[] = [
     ],
   },
   {
-    disruptionId: 'OUT20410-2609080740',
-    outletId: 'OUT20410',
+    disruptionId: 'ES97-2609080740',
+    outletId: 'ES97',
     storeName: 'Andheri East Marol',
     city: 'Mumbai',
     mode: 'Dark Store',
@@ -147,7 +147,7 @@ export const INITIAL_DISRUPTIONS: Disruption[] = [
     updateHistory: [
       {
         updateId: 'UPD-6',
-        disruptionId: 'OUT20410-2609080740',
+        disruptionId: 'ES97-2609080740',
         updateText: 'Freezer temperature rose to -4C. RAC technician called.',
         updatedBy: 'Kunal',
         updatedAt: '08/09/2026 07:40:22',
@@ -156,7 +156,7 @@ export const INITIAL_DISRUPTIONS: Disruption[] = [
       },
       {
         updateId: 'UPD-7',
-        disruptionId: 'OUT20410-2609080740',
+        disruptionId: 'ES97-2609080740',
         updateText: 'Refrigerant recharged, nitrogen pressure test passed. Temperatures stable at -18C.',
         updatedBy: 'Kunal',
         updatedAt: '08/09/2026 10:00:15',
@@ -166,8 +166,8 @@ export const INITIAL_DISRUPTIONS: Disruption[] = [
     ],
   },
   {
-    disruptionId: 'OUT40550-2609080630',
-    outletId: 'OUT40550',
+    disruptionId: 'ES173-2609080630',
+    outletId: 'ES173',
     storeName: 'Gachibowli Financial Dist',
     city: 'Hyderabad',
     mode: 'Dark Store',
@@ -189,7 +189,7 @@ export const INITIAL_DISRUPTIONS: Disruption[] = [
     updateHistory: [
       {
         updateId: 'UPD-8',
-        disruptionId: 'OUT40550-2609080630',
+        disruptionId: 'ES173-2609080630',
         updateText: 'Sensor calibration glitch verified by store team. Reverted disable.',
         updatedBy: 'Nomita',
         updatedAt: '08/09/2026 07:15:00',
@@ -199,8 +199,8 @@ export const INITIAL_DISRUPTIONS: Disruption[] = [
     ],
   },
   {
-    disruptionId: 'OUT55102-2609081200',
-    outletId: 'OUT55102',
+    disruptionId: 'ES109-2609081200',
+    outletId: 'ES109',
     storeName: 'Connaught Place Outer Circle',
     city: 'Delhi',
     mode: 'Dark Store',
@@ -239,7 +239,7 @@ export const INITIAL_DISRUPTIONS: Disruption[] = [
     updateHistory: [
       {
         updateId: 'UPD-9',
-        disruptionId: 'OUT55102-2609081200',
+        disruptionId: 'ES109-2609081200',
         updateText: 'Initial incident logged with No Update. Escalation team notified.',
         updatedBy: 'Chirag',
         updatedAt: '08/09/2026 12:00:00',
@@ -249,8 +249,8 @@ export const INITIAL_DISRUPTIONS: Disruption[] = [
     ],
   },
   {
-    disruptionId: 'OUT60214-2609071400',
-    outletId: 'OUT60214',
+    disruptionId: 'ES56-2609071400',
+    outletId: 'ES56',
     storeName: 'Bandra West Hill Road',
     city: 'Mumbai',
     mode: 'Dark Store',
@@ -289,7 +289,7 @@ export const INITIAL_DISRUPTIONS: Disruption[] = [
     updateHistory: [
       {
         updateId: 'UPD-10',
-        disruptionId: 'OUT60214-2609071400',
+        disruptionId: 'ES56-2609071400',
         updateText: 'Facility electrical audit in progress. Secondary cold room temporarily isolated.',
         updatedBy: 'Palak',
         updatedAt: '08/09/2026 11:30:00',

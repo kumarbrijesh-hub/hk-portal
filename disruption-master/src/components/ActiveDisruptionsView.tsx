@@ -27,7 +27,7 @@ import {
   exportActiveReportToExcel,
   exportActiveReportToPNG,
 } from '../utils/reportExport';
-import { getCurrentISTDate, formatProFixGeneratedTimestamp, calculateDurationHours } from '../utils/dateUtils';
+import { getCurrentISTDate, formatReportGeneratedTimestamp, calculateDurationHours } from '../utils/dateUtils';
 import { readIssues, readSubIssues } from '../utils/issueTaxonomy';
 import { auditHoldState, expiredAuditHolds, formatHoursMinutes } from '../utils/auditHold';
 
@@ -174,7 +174,7 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
     [allDisruptions, nowTick]
   );
 
-  // ProFix Active Metrics calculation matching report screenshot
+  // Headline metrics shown across the top of the report
   const profixStats = useMemo(() => {
     const breakdownDisruptions = filteredActiveDisruptions.filter((d) => d.bucket === 'Breakdown');
     const nonBreakdownDisruptions = filteredActiveDisruptions.filter((d) => d.bucket !== 'Breakdown');
@@ -630,7 +630,7 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
               type="text"
               value={outletFilter}
               onChange={(e) => setOutletFilter(e.target.value)}
-              placeholder="e.g. OUT12345"
+              placeholder="e.g. ES100"
               className="w-full p-2 rounded-lg border border-slate-300 bg-white uppercase font-mono"
             />
           </div>
@@ -664,48 +664,54 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
         </div>
       </div>
 
-      {/* 18. ProFix Active Disruptions Report View (Target Container for PNG Report Export) */}
+      {/* Active Disruptions report (the element captured for the PNG export) */}
       <div
         id="active-disruptions-report-capture"
         className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden"
       >
-        {/* ProFix Branding & Action Bar */}
+        {/* Report title & action bar. The headline is the active count itself —
+            the number is what the report is about. */}
         <div className="p-6 bg-white border-b border-slate-200 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <div className="flex items-center gap-0.5">
-              <span className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">Pro</span>
-              <span className="text-3xl sm:text-4xl font-black text-emerald-500 tracking-tight">Fix</span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-4xl sm:text-5xl font-black text-rose-600 tracking-tight tabular-nums">
+                {profixStats.totalActive}
+              </span>
+              <span className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                Active Disruption{profixStats.totalActive === 1 ? '' : 's'}
+              </span>
             </div>
             <div className="text-[11px] font-bold tracking-[0.25em] text-slate-500 uppercase mt-0.5">
-              ACTIVE DISRUPTIONS
+              Live Operations Snapshot
             </div>
             <div className="mt-2.5">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-blue-50/90 text-blue-700 border border-blue-200 text-xs font-semibold shadow-2xs">
                 <Clock className="w-3.5 h-3.5 text-blue-600" />
-                Generated: {formatProFixGeneratedTimestamp()}
+                Generated: {formatReportGeneratedTimestamp()}
               </span>
             </div>
           </div>
 
-          {/* Export & Actions Toolbar */}
-          <div className="flex flex-wrap items-center gap-2.5">
+          {/* Export & Actions Toolbar. Marked screen-only so it is left out of
+              the exported PNG — the buttons are not part of the report. */}
+          <div className="flex flex-wrap items-center gap-2.5" data-export-exclude="true">
             <button
               id="download-profix-png-btn"
               type="button"
               onClick={handleDownloadPNG}
               disabled={isGeneratingPng}
               className="px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs tracking-wide shadow-xs transition flex items-center gap-2 active:scale-95 cursor-pointer disabled:opacity-50"
-              title="Download ProFix Active Disruptions Report as PNG Image"
+              title="Download the Active Disruptions report as a high-resolution PNG"
             >
               {isGeneratingPng ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                  <span>Generating ProFix PNG...</span>
+                  <span>Generating PNG...</span>
                 </>
               ) : (
                 <>
                   <ImageIcon className="w-4 h-4 text-white" />
-                  <span>Download PNG Report (ProFix)</span>
+                  <span>Download PNG Report</span>
                 </>
               )}
             </button>
@@ -1043,7 +1049,7 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
           </table>
         </div>
 
-        {/* Section 2: Auditing & Non-Admin Disruptions (Matching ProFix screenshot) */}
+        {/* Section 2: Auditing & Non-Admin Disruptions */}
         {auditActiveDisruptions.length > 0 && (
           <div className="border-t-2 border-purple-200">
             {/* Purple Banner */}
@@ -1224,11 +1230,11 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
         {/* Report Footer Bar in Exported PNG */}
         <div className="p-3.5 bg-slate-50 border-t border-slate-200 text-slate-500 text-[11px] flex flex-col sm:flex-row items-center justify-between gap-1">
           <div className="flex items-center gap-1.5">
-            <span className="font-bold text-slate-700">ProFix</span>
+            <span className="font-bold text-slate-700">Disruption Management System</span>
             <span>• Active Disruptions Executive Snapshot</span>
           </div>
           <div className="font-mono text-[10px] text-slate-400">
-            Confidential Operations Record • Snapshot Generated IST: {formatProFixGeneratedTimestamp()}
+            Confidential Operations Record • Snapshot Generated IST: {formatReportGeneratedTimestamp()}
           </div>
         </div>
 

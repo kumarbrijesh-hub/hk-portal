@@ -1,52 +1,111 @@
 import * as XLSX from 'xlsx';
 import { toPng } from 'html-to-image';
 import { Disruption } from '../types';
-import { getCurrentISTDate, getProFixFileTimestamp } from './dateUtils';
+import { getCurrentISTDate, getReportFileTimestamp } from './dateUtils';
 import { readIssues, readSubIssues } from './issueTaxonomy';
 
+/**
+ * Chrome refuses canvases beyond roughly 16384px on a side. Staying under that
+ * keeps a tall report from silently producing a blank image.
+ */
+const MAX_CANVAS_EDGE = 15000;
+
+/** Rendered at 3x so the image holds up when someone zooms into a cell. */
+const TARGET_PIXEL_RATIO = 3;
+
+/**
+ * Captures the report element as a PNG.
+ *
+ * The report nests its tables inside horizontal scroll containers, so a naive
+ * capture cuts the right-hand columns off at the viewport edge. Those
+ * containers are opened up for the duration of the capture and restored
+ * afterwards, and the image is measured off the resulting full content width.
+ */
 export async function exportActiveReportToPNG(elementId: string, customFilename?: string): Promise<void> {
   const node = document.getElementById(elementId);
   if (!node) {
     throw new Error(`Report element with ID "${elementId}" not found for PNG generation.`);
   }
 
-  const filename = customFilename || `ProFix_Active_Disruptions_${getProFixFileTimestamp()}.png`;
+  const filename = customFilename || `Active_Disruptions_${getReportFileTimestamp()}.png`;
 
-  // Measure full scroll dimensions to guarantee complete table capture without clipping
-  const fullWidth = Math.max(node.scrollWidth, 1280);
-  const fullHeight = node.scrollHeight;
+  // Let every clipped region lay itself out at full width before measuring.
+  const scrollers = Array.from(node.querySelectorAll<HTMLElement>('.overflow-x-auto, .overflow-y-auto'));
+  const saved = scrollers.map((el) => ({
+    el,
+    overflow: el.style.overflow,
+    overflowX: el.style.overflowX,
+    overflowY: el.style.overflowY,
+    maxHeight: el.style.maxHeight,
+  }));
+  for (const el of scrollers) {
+    el.style.overflow = 'visible';
+    el.style.overflowX = 'visible';
+    el.style.overflowY = 'visible';
+    el.style.maxHeight = 'none';
+  }
 
-  // Generate PNG data URL at high resolution (pixelRatio: 2)
-  // skipFonts: true prevents reading cssRules on cross-origin Google Fonts stylesheets
-  const dataUrl = await toPng(node, {
-    quality: 0.98,
-    pixelRatio: 2,
-    width: fullWidth,
-    height: fullHeight,
-    backgroundColor: '#ffffff',
-    cacheBust: true,
-    skipFonts: true,
-    fontEmbedCSS: '',
-    filter: (domNode) => {
-      // Exclude external stylesheet links if any exist inside the element
-      if (domNode.nodeName === 'LINK') {
-        return false;
-      }
-      return true;
-    },
-    style: {
-      width: `${fullWidth}px`,
-      overflow: 'visible',
-      transform: 'none',
-    },
-  });
+  const savedNodeWidth = node.style.width;
 
-  const link = document.createElement('a');
-  link.download = filename;
-  link.href = dataUrl;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  try {
+    // Reading a layout property forces the reflow we just asked for.
+    void node.offsetHeight;
+
+    const fullWidth = Math.max(node.scrollWidth, Math.ceil(node.getBoundingClientRect().width), 1280);
+
+    // Widen the container itself so banners and footers stretch to match the
+    // widest table instead of stopping at the old viewport width.
+    node.style.width = `${fullWidth}px`;
+    void node.offsetHeight;
+
+    const fullHeight = Math.max(node.scrollHeight, Math.ceil(node.getBoundingClientRect().height));
+
+    // Scale back from 3x only as far as the canvas ceiling demands.
+    const pixelRatio = Math.max(
+      1,
+      Math.min(TARGET_PIXEL_RATIO, MAX_CANVAS_EDGE / fullWidth, MAX_CANVAS_EDGE / fullHeight)
+    );
+
+    // skipFonts avoids reading cssRules on the cross-origin Google Fonts sheet,
+    // which throws a SecurityError and aborts the whole capture.
+    const dataUrl = await toPng(node, {
+      pixelRatio,
+      width: fullWidth,
+      height: fullHeight,
+      backgroundColor: '#ffffff',
+      cacheBust: true,
+      skipFonts: true,
+      fontEmbedCSS: '',
+      // Drop stylesheet links, and anything marked as a screen-only control:
+      // the export toolbar belongs on the page, not inside the report image.
+      filter: (domNode) =>
+        domNode.nodeName !== 'LINK' &&
+        !(domNode instanceof HTMLElement && domNode.dataset.exportExclude === 'true'),
+      style: {
+        width: `${fullWidth}px`,
+        height: `${fullHeight}px`,
+        overflow: 'visible',
+        transform: 'none',
+        boxShadow: 'none',
+      },
+    });
+
+    const link = document.createElement('a');
+    link.download = filename;
+    link.href = dataUrl;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } finally {
+    // Always hand the layout back, even if the capture threw.
+    node.style.width = savedNodeWidth;
+    for (const s of saved) {
+      s.el.style.overflow = s.overflow;
+      s.el.style.overflowX = s.overflowX;
+      s.el.style.overflowY = s.overflowY;
+      s.el.style.maxHeight = s.maxHeight;
+    }
+  }
 }
 
 export function exportActiveReportToCSV(disruptions: Disruption[], activeFiltersDescription?: string) {

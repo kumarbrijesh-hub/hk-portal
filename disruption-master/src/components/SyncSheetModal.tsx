@@ -431,7 +431,7 @@ export const SyncSheetModal: React.FC<SyncSheetModalProps> = ({
                     setPastedText(e.target.value);
                     parseDelimitedText(e.target.value);
                   }}
-                  placeholder="outlet_id	City	Store Name	Cold POC Name-2	Cold POC Contact-2&#10;OUT10021	Bengaluru	Koramangala 4th Block Hub	Ramesh Sharma	+91 98112 34501&#10;OUT12345	Gurugram	Cyber City Sector 24	Vikram Rajput	+91 98450 12345"
+                  placeholder="outlet_id	City	Store Name	Cold POC Name-2	Cold POC Contact-2&#10;ES2	Bengaluru	Koramangala 4th Block Hub	Ramesh Sharma	+91 98112 34501&#10;ES100	Gurugram	Cyber City Sector 24	Vikram Rajput	+91 98450 12345"
                   className="w-full p-3 font-mono text-xs rounded-lg border border-slate-300 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-slate-800 transition"
                 />
               </div>

@@ -224,7 +224,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
   };
 
   return (
-    <div id="config-view-container" className="space-y-6 max-w-5xl mx-auto">
+    <div id="config-view-container" className="space-y-6 max-w-7xl mx-auto">
       {/* Title Card */}
       <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>

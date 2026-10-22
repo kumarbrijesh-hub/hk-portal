@@ -1,6 +1,6 @@
 /**
  * Generates Disruption ID with format: OutletID-YYMMDDHHMM
- * Example: OUT12345-2609091435
+ * Example: ES100-2609091435
  */
 
 export function generateDisruptionId(

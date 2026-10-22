@@ -111,7 +111,6 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
     const match = outlets.find((o) => {
       const oid = (o.outletId || '').trim().toUpperCase();
       if (oid === clean) return true;
-      if (oid === `OUT${clean}` || `OUT${oid}` === clean) return true;
       const oidNum = oid.replace(/[^0-9]/g, '');
       if (cleanNum && oidNum && cleanNum === oidNum && cleanNum.length >= 3) return true;
       return false;
@@ -485,7 +484,7 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
                   onChange={(e) => {
                     setOutletIdInput(e.target.value);
                   }}
-                  placeholder="Enter outlet_id (e.g. OUT12345, 10021)..."
+                  placeholder="Enter outlet_id (e.g. ES100, ES2)..."
                   className="w-full pl-9 pr-3 py-2 text-sm uppercase rounded-lg border border-slate-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-white font-mono font-bold text-slate-900"
                   autoComplete="off"
                   required

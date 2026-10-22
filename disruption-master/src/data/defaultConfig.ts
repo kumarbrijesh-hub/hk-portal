@@ -88,7 +88,7 @@ export const DEFAULT_CONFIG: AppConfig = {
 
 export const INITIAL_OUTLETS: OutletMaster[] = [
   {
-    outletId: 'OUT10021',
+    outletId: 'ES1',
     storeName: 'Koramangala 4th Block Hub',
     city: 'Bengaluru',
     mode: 'Dark Store',
@@ -114,7 +114,7 @@ export const INITIAL_OUTLETS: OutletMaster[] = [
     syncedAt: '08/09/2026 11:30:00',
   },
   {
-    outletId: 'OUT10022',
+    outletId: 'ES2',
     storeName: 'Indiranagar 100ft Road',
     city: 'Bengaluru',
     mode: 'Express Hub',
@@ -140,7 +140,7 @@ export const INITIAL_OUTLETS: OutletMaster[] = [
     syncedAt: '08/09/2026 11:30:00',
   },
   {
-    outletId: 'OUT12345',
+    outletId: 'ES3',
     storeName: 'Cyber City Sector 24',
     city: 'Gurugram',
     mode: 'Dark Store',
@@ -166,7 +166,7 @@ export const INITIAL_OUTLETS: OutletMaster[] = [
     syncedAt: '08/09/2026 11:30:00',
   },
   {
-    outletId: 'OUT12346',
+    outletId: 'ES4',
     storeName: 'Golf Course Road Hub',
     city: 'Gurugram',
     mode: 'Super Hub',
@@ -176,7 +176,7 @@ export const INITIAL_OUTLETS: OutletMaster[] = [
     syncedAt: '08/09/2026 11:30:00',
   },
   {
-    outletId: 'OUT20410',
+    outletId: 'ES5',
     storeName: 'Andheri East Marol',
     city: 'Mumbai',
     mode: 'Dark Store',
@@ -186,7 +186,7 @@ export const INITIAL_OUTLETS: OutletMaster[] = [
     syncedAt: '08/09/2026 11:30:00',
   },
   {
-    outletId: 'OUT20411',
+    outletId: 'ES6',
     storeName: 'Bandra West Hill Road',
     city: 'Mumbai',
     mode: 'Express Hub',
@@ -196,7 +196,7 @@ export const INITIAL_OUTLETS: OutletMaster[] = [
     syncedAt: '08/09/2026 11:30:00',
   },
   {
-    outletId: 'OUT30105',
+    outletId: 'ES7',
     storeName: 'Viman Nagar Phoenix',
     city: 'Pune',
     mode: 'Dark Store',
@@ -206,7 +206,7 @@ export const INITIAL_OUTLETS: OutletMaster[] = [
     syncedAt: '08/09/2026 11:30:00',
   },
   {
-    outletId: 'OUT30106',
+    outletId: 'ES8',
     storeName: 'Kothrud Paud Road',
     city: 'Pune',
     mode: 'Retail Hub',
@@ -216,7 +216,7 @@ export const INITIAL_OUTLETS: OutletMaster[] = [
     syncedAt: '08/09/2026 11:30:00',
   },
   {
-    outletId: 'OUT40550',
+    outletId: 'ES9',
     storeName: 'Gachibowli Financial Dist',
     city: 'Hyderabad',
     mode: 'Dark Store',
@@ -226,7 +226,7 @@ export const INITIAL_OUTLETS: OutletMaster[] = [
     syncedAt: '08/09/2026 11:30:00',
   },
   {
-    outletId: 'OUT50201',
+    outletId: 'ES10',
     storeName: 'Salt Lake Sector V',
     city: 'Kolkata',
     mode: 'Warehouse',
@@ -236,7 +236,7 @@ export const INITIAL_OUTLETS: OutletMaster[] = [
     syncedAt: '08/09/2026 11:30:00',
   },
   {
-    outletId: 'OUT60780',
+    outletId: 'ES11',
     storeName: 'Anna Nagar West',
     city: 'Chennai',
     mode: 'Dark Store',
@@ -246,7 +246,7 @@ export const INITIAL_OUTLETS: OutletMaster[] = [
     syncedAt: '08/09/2026 11:30:00',
   },
   {
-    outletId: 'OUT70112',
+    outletId: 'ES12',
     storeName: 'Sector 18 Atta Market',
     city: 'Noida',
     mode: 'Dark Store',
