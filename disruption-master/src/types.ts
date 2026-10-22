@@ -159,6 +159,14 @@ export interface Disruption {
   bucket: BucketType;
   ticketId?: string;
   currentStatus: CurrentStatus;
+  /**
+   * Resolution taxonomy. Operators pick sub-issues only and several can apply
+   * to one disruption; `issues` is derived from the master, never typed in.
+   * `issue` / `subIssue` are the first of each, kept so older records and the
+   * sheet export keep working.
+   */
+  issues?: string[];
+  subIssues?: string[];
   issue?: string;
   subIssue?: string;
   latestLiveUpdate: string;

@@ -27,6 +27,7 @@ import {
 } from '../types';
 import { generateDisruptionId } from '../utils/idGenerator';
 import { formatDateTimeIST, getCurrentISTDate } from '../utils/dateUtils';
+import { SubIssuePicker } from './SubIssuePicker';
 
 interface LiveTrackerFormProps {
   outlets: OutletMaster[];
@@ -87,8 +88,7 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
   const [bucket, setBucket] = useState<BucketType>('Non Breakdown');
   const [ticketId, setTicketId] = useState('');
   const [currentStatus, setCurrentStatus] = useState<CurrentStatus>('No Update');
-  const [selectedIssue, setSelectedIssue] = useState('');
-  const [selectedSubIssue, setSelectedSubIssue] = useState('');
+  const [selectedSubIssues, setSelectedSubIssues] = useState<string[]>([]);
   const [liveUpdateText, setLiveUpdateText] = useState('');
   // First response times in minutes; blank stays blank rather than becoming 0.
   const [ccFrtInput, setCcFrtInput] = useState('');
@@ -194,35 +194,13 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
   const isTicketIdMandatory = bucket === 'Breakdown';
   const isIssueMandatory = RESOLVED_STATUSES_REQUIRING_ISSUE.includes(currentStatus);
 
-  // Available sub-issues based on selected issue
-  const availableSubIssues = useMemo(() => {
-    if (!selectedIssue || !issueMaster[selectedIssue]) return [];
-    return issueMaster[selectedIssue];
-  }, [selectedIssue, issueMaster]);
-
-  // Reset issue when status changes away from resolved
+  // Clear the tagging when the status moves away from a resolved one; nothing
+  // is pre-selected, because guessing a sub-issue would be worse than blank.
   useEffect(() => {
     if (!isIssueMandatory) {
-      setSelectedIssue('');
-      setSelectedSubIssue('');
-    } else if (!selectedIssue) {
-      // Pick first available issue category
-      const keys = Object.keys(issueMaster);
-      if (keys.length > 0) {
-        setSelectedIssue(keys[0]);
-        if (issueMaster[keys[0]]?.length > 0) {
-          setSelectedSubIssue(issueMaster[keys[0]][0]);
-        }
-      }
+      setSelectedSubIssues([]);
     }
-  }, [isIssueMandatory, issueMaster]);
-
-  // Reset sub-issue when issue category changes
-  const handleIssueChange = (newIssue: string) => {
-    setSelectedIssue(newIssue);
-    const subList = issueMaster[newIssue] || [];
-    setSelectedSubIssue(subList.length > 0 ? subList[0] : '');
-  };
+  }, [isIssueMandatory]);
 
   const handleSetCurrentTime = () => {
     const { dateStr, timeStr } = getCurrentISTDate();
@@ -273,16 +251,10 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
       setErrorMessage('Current Status is mandatory.');
       return;
     }
-    // 3. Issue and Sub-Issue validation
-    if (isIssueMandatory) {
-      if (!selectedIssue || !selectedIssue.trim()) {
-        setErrorMessage(`Issue is mandatory when Current Status is "${currentStatus}".`);
-        return;
-      }
-      if (!selectedSubIssue || !selectedSubIssue.trim()) {
-        setErrorMessage(`Sub Issue is mandatory when Current Status is "${currentStatus}".`);
-        return;
-      }
+    // 3. Sub-issue validation. The issue category is derived, never entered.
+    if (isIssueMandatory && selectedSubIssues.length === 0) {
+      setErrorMessage(`Select at least one Sub Issue when Current Status is "${currentStatus}".`);
+      return;
     }
     // 4. Live Update validation
     if (!liveUpdateText.trim()) {
@@ -334,8 +306,7 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
         bucket,
         ticketId: ticketId.trim() || undefined,
         currentStatus,
-        issue: isIssueMandatory ? selectedIssue : undefined,
-        subIssue: isIssueMandatory ? selectedSubIssue : undefined,
+        subIssues: selectedSubIssues,
         latestLiveUpdate: liveUpdateText.trim(),
         ccFrtMins: ccFrtInput.trim() === '' ? undefined : Number(ccFrtInput),
         mstFrtMins: mstFrtInput.trim() === '' ? undefined : Number(mstFrtInput),
@@ -392,8 +363,7 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
       setLiveUpdateText('');
       setCcFrtInput('');
       setMstFrtInput('');
-      setSelectedIssue('');
-      setSelectedSubIssue('');
+      setSelectedSubIssues([]);
       handleSetCurrentTime();
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to create disruption. Please try again.';
@@ -1118,51 +1088,23 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
             </div>
           </div>
 
-          {/* Conditional Issue & Sub-Issue Fields (Visible only for resolved statuses) */}
+          {/* Sub-issue tagging, only for resolved statuses. Several may apply. */}
           {isIssueMandatory && (
             <div
               id="conditional-issue-section"
-              className="p-4 rounded-lg bg-emerald-50/80 border border-emerald-200 grid grid-cols-1 md:grid-cols-2 gap-4"
+              className="p-4 rounded-lg bg-emerald-50/80 border border-emerald-200"
             >
-              <div>
-                <label htmlFor="issue-select" className="block text-xs font-semibold text-emerald-900 mb-1">
-                  Issue Category <span className="text-rose-500">* (Mandatory for {currentStatus})</span>
-                </label>
-                <select
-                  id="issue-select"
-                  value={selectedIssue}
-                  onChange={(e) => handleIssueChange(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-emerald-300 bg-white focus:ring-2 focus:ring-emerald-500 font-medium"
-                  required
-                >
-                  <option value="">Select Issue Category</option>
-                  {Object.keys(issueMaster).map((issueKey) => (
-                    <option key={issueKey} value={issueKey}>
-                      {issueKey}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label htmlFor="sub-issue-select" className="block text-xs font-semibold text-emerald-900 mb-1">
-                  Sub Issue <span className="text-rose-500">* (Mandatory)</span>
-                </label>
-                <select
-                  id="sub-issue-select"
-                  value={selectedSubIssue}
-                  onChange={(e) => setSelectedSubIssue(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-emerald-300 bg-white focus:ring-2 focus:ring-emerald-500 font-medium"
-                  required
-                >
-                  <option value="">Select Sub Issue</option>
-                  {availableSubIssues.map((sub) => (
-                    <option key={sub} value={sub}>
-                      {sub}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <SubIssuePicker
+                issueMaster={issueMaster}
+                selected={selectedSubIssues}
+                onChange={setSelectedSubIssues}
+                required
+                idPrefix="form-sub-issue"
+              />
+              <p className="mt-2 text-[11px] text-emerald-900">
+                Mandatory for &ldquo;{currentStatus}&rdquo;. Tick every sub-issue that was rectified — the issue
+                category is picked up from the master on its own.
+              </p>
             </div>
           )}
         </div>

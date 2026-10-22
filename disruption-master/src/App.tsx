@@ -420,6 +420,7 @@ export default function App() {
             syncStatus={syncStatus}
             outlets={outlets}
             isSyncing={isSyncing}
+            isOwner={isOwner}
             onSaveConfig={handleSaveConfig}
             onSyncNow={handleSyncNow}
             onBulkUploadOutlets={handleBulkUploadOutlets}

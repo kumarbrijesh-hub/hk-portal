@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { X, Send, Activity, AlertCircle } from 'lucide-react';
 import { CurrentStatus, CURRENT_STATUS_OPTIONS, Disruption, RESOLVED_STATUSES_REQUIRING_ISSUE } from '../types';
 import { StatusBadge } from './StatusBadge';
+import { SubIssuePicker } from './SubIssuePicker';
+import { readSubIssues } from '../utils/issueTaxonomy';
 
 interface LiveUpdateModalProps {
   disruption: Disruption;
@@ -20,18 +22,11 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
 }) => {
   const [updateText, setUpdateText] = useState('');
   const [targetStatus, setTargetStatus] = useState<CurrentStatus>(disruption.currentStatus);
-  const [selectedIssue, setSelectedIssue] = useState(disruption.issue || '');
-  const [selectedSubIssue, setSelectedSubIssue] = useState(disruption.subIssue || '');
+  const [selectedSubIssues, setSelectedSubIssues] = useState<string[]>(readSubIssues(disruption));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isIssueRequired = RESOLVED_STATUSES_REQUIRING_ISSUE.includes(targetStatus);
-
-  const handleIssueChange = (val: string) => {
-    setSelectedIssue(val);
-    const subList = issueMaster[val] || [];
-    setSelectedSubIssue(subList.length > 0 ? subList[0] : '');
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,15 +37,9 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
       return;
     }
 
-    if (isIssueRequired) {
-      if (!selectedIssue.trim()) {
-        setError(`Issue category is mandatory for status "${targetStatus}".`);
-        return;
-      }
-      if (!selectedSubIssue.trim()) {
-        setError(`Sub Issue is mandatory for status "${targetStatus}".`);
-        return;
-      }
+    if (isIssueRequired && selectedSubIssues.length === 0) {
+      setError(`Select at least one sub-issue for status "${targetStatus}".`);
+      return;
     }
 
     setIsSubmitting(true);
@@ -63,8 +52,7 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
           updateText: updateText.trim(),
           updatedBy: currentUser || disruption.ccPoc || 'Operator',
           newStatus: targetStatus,
-          issue: isIssueRequired ? selectedIssue : undefined,
-          subIssue: isIssueRequired ? selectedSubIssue : undefined,
+          subIssues: selectedSubIssues,
         }),
       });
 
@@ -139,46 +127,24 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
             </select>
           </div>
 
-          {/* Conditional Issue selection if moving to Resolved */}
-          {isIssueRequired && (
-            <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200 space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-emerald-900 mb-1">
-                  Issue Category <span className="text-rose-600">*</span>
-                </label>
-                <select
-                  value={selectedIssue}
-                  onChange={(e) => handleIssueChange(e.target.value)}
-                  className="w-full px-2.5 py-1.5 text-xs rounded border border-emerald-300 bg-white"
-                  required
-                >
-                  <option value="">Select Issue</option>
-                  {Object.keys(issueMaster).map((k) => (
-                    <option key={k} value={k}>
-                      {k}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-emerald-900 mb-1">
-                  Sub Issue <span className="text-rose-600">*</span>
-                </label>
-                <select
-                  value={selectedSubIssue}
-                  onChange={(e) => setSelectedSubIssue(e.target.value)}
-                  className="w-full px-2.5 py-1.5 text-xs rounded border border-emerald-300 bg-white"
-                  required
-                >
-                  <option value="">Select Sub Issue</option>
-                  {(issueMaster[selectedIssue] || []).map((sub) => (
-                    <option key={sub} value={sub}>
-                      {sub}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          {/* Resolution taxonomy. Shown whenever anything has been tagged so a
+              correction does not need the status to be flipped first. */}
+          {(isIssueRequired || selectedSubIssues.length > 0) && (
+            <div
+              className={`p-3 rounded-lg border space-y-3 ${
+                isIssueRequired ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'
+              }`}
+            >
+              <SubIssuePicker
+                issueMaster={issueMaster}
+                selected={selectedSubIssues}
+                onChange={setSelectedSubIssues}
+                required={isIssueRequired}
+                idPrefix="modal-sub-issue"
+              />
+              <p className="text-[11px] text-slate-600">
+                Pick every sub-issue that applied. The issue category is filled in from the master automatically.
+              </p>
             </div>
           )}
 

@@ -13,6 +13,10 @@ import {
   Upload,
   Info,
   ExternalLink,
+  Pencil,
+  Check,
+  X,
+  Lock,
 } from 'lucide-react';
 import { AppConfig, OutletMaster, SyncStatus } from '../types';
 
@@ -21,6 +25,8 @@ interface ConfigViewProps {
   syncStatus: SyncStatus;
   outlets: OutletMaster[];
   isSyncing: boolean;
+  /** Masters are read-only for everyone but the owner account. */
+  isOwner: boolean;
   onSaveConfig: (updated: AppConfig) => Promise<void>;
   onSyncNow: () => void;
   onBulkUploadOutlets: (outlets: OutletMaster[]) => Promise<void>;
@@ -31,6 +37,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
   syncStatus,
   outlets,
   isSyncing,
+  isOwner,
   onSaveConfig,
   onSyncNow,
   onBulkUploadOutlets,
@@ -40,14 +47,16 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
   const [sheetTabName, setSheetTabName] = useState(config.sheetTabName || 'Master_Data');
   const [syncIntervalMinutes, setSyncIntervalMinutes] = useState(config.syncIntervalMinutes || 5);
   const [columnMapping, setColumnMapping] = useState({ ...config.columnMapping });
-  const [ccPocs, setCcPocs] = useState<string[]>([...config.ccPocOptions]);
-  const [newPocInput, setNewPocInput] = useState('');
   const [issueMaster, setIssueMaster] = useState<Record<string, string[]>>({ ...config.issueMaster });
   const [newIssueCategory, setNewIssueCategory] = useState('');
   const [newSubIssueInput, setNewSubIssueInput] = useState('');
   const [selectedIssueCategory, setSelectedIssueCategory] = useState<string>(
     Object.keys(config.issueMaster)[0] || ''
   );
+  // Inline rename targets: which category / sub-issue is currently being retitled.
+  const [renamingCategory, setRenamingCategory] = useState<string | null>(null);
+  const [renamingSubIssue, setRenamingSubIssue] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -66,7 +75,6 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
         sheetTabName: sheetTabName.trim(),
         syncIntervalMinutes: Number(syncIntervalMinutes) || 5,
         columnMapping,
-        ccPocOptions: ccPocs,
         issueMaster,
       };
 
@@ -78,19 +86,6 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
     } finally {
       setIsSaving(false);
     }
-  };
-
-  const handleAddPoc = () => {
-    if (!newPocInput.trim()) return;
-    const clean = newPocInput.trim();
-    if (!ccPocs.includes(clean)) {
-      setCcPocs([...ccPocs, clean]);
-    }
-    setNewPocInput('');
-  };
-
-  const handleRemovePoc = (name: string) => {
-    setCcPocs(ccPocs.filter((p) => p !== name));
   };
 
   const handleAddIssueCategory = () => {
@@ -122,6 +117,63 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
       ...issueMaster,
       [selectedIssueCategory]: (issueMaster[selectedIssueCategory] || []).filter((s) => s !== sub),
     });
+  };
+
+  const handleRemoveIssueCategory = (category: string) => {
+    const next = { ...issueMaster };
+    delete next[category];
+    setIssueMaster(next);
+    if (selectedIssueCategory === category) {
+      setSelectedIssueCategory(Object.keys(next)[0] || '');
+    }
+  };
+
+  const startRenameCategory = (category: string) => {
+    setRenamingSubIssue(null);
+    setRenamingCategory(category);
+    setRenameDraft(category);
+  };
+
+  const startRenameSubIssue = (sub: string) => {
+    setRenamingCategory(null);
+    setRenamingSubIssue(sub);
+    setRenameDraft(sub);
+  };
+
+  const cancelRename = () => {
+    setRenamingCategory(null);
+    setRenamingSubIssue(null);
+    setRenameDraft('');
+  };
+
+  /** Retitles a category, keeping its position so the list does not jump. */
+  const commitRenameCategory = () => {
+    const from = renamingCategory;
+    const to = renameDraft.trim();
+    if (!from || !to || to === from) return cancelRename();
+    if (issueMaster[to]) return cancelRename(); // name already taken
+
+    const next: Record<string, string[]> = {};
+    for (const [key, subs] of Object.entries(issueMaster)) {
+      next[key === from ? to : key] = subs;
+    }
+    setIssueMaster(next);
+    if (selectedIssueCategory === from) setSelectedIssueCategory(to);
+    cancelRename();
+  };
+
+  const commitRenameSubIssue = () => {
+    const from = renamingSubIssue;
+    const to = renameDraft.trim();
+    if (!from || !to || !selectedIssueCategory || to === from) return cancelRename();
+    const subs = issueMaster[selectedIssueCategory] || [];
+    if (subs.includes(to)) return cancelRename();
+
+    setIssueMaster({
+      ...issueMaster,
+      [selectedIssueCategory]: subs.map((s) => (s === from ? to : s)),
+    });
+    cancelRename();
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -181,8 +233,14 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
             Google Sheet Master Data & Configuration
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Configure Google Sheets sync parameters, column header mappings, CC POC operators, and issue taxonomy.
+            Configure Google Sheets sync parameters, column header mappings and the issue taxonomy.
           </p>
+          {!isOwner && (
+            <p className="mt-2 inline-flex items-center gap-1.5 px-2 py-1 rounded bg-amber-50 border border-amber-200 text-[11px] font-semibold text-amber-800">
+              <Lock className="w-3 h-3" />
+              Read-only — only the owner account can change these masters.
+            </p>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -398,59 +456,27 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
         {/* Section 3: CC POC Masters */}
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4">
           <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-900">
-              3. CC POC Operator Master List
-            </h3>
-            <span className="text-xs text-slate-500">
-              Configured operators permitted in the CC POC dropdown
-            </span>
+            <h3 className="text-sm font-bold text-slate-900">3. CC POC</h3>
+            <span className="text-xs text-slate-500">Taken from the signed-in account</span>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            {ccPocs.map((poc) => (
-              <span
-                key={poc}
-                className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-800 rounded-md text-xs font-medium border border-slate-200"
-              >
-                <span>{poc}</span>
-                <button
-                  type="button"
-                  onClick={() => handleRemovePoc(poc)}
-                  className="text-slate-400 hover:text-rose-600 transition ml-1"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              </span>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-2 max-w-sm">
-            <input
-              type="text"
-              value={newPocInput}
-              onChange={(e) => setNewPocInput(e.target.value)}
-              placeholder="Add new operator name..."
-              className="flex-1 p-2 rounded-lg border border-slate-300 text-xs"
-            />
-            <button
-              type="button"
-              onClick={handleAddPoc}
-              className="px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-semibold flex items-center gap-1"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add</span>
-            </button>
+          <div className="flex items-start gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-900">
+            <Info className="w-4 h-4 shrink-0 mt-0.5" />
+            <p>
+              There is no CC POC list to maintain any more. Whoever is signed in is stamped as the CC POC on the
+              entries they create, and each person can correct how their own name appears from the header.
+            </p>
           </div>
         </div>
 
         {/* Section 4: Issue & Sub-Issue Master */}
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4">
           <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-900">
-              4. Issue & Sub-Issue Taxonomy Master
-            </h3>
+            <h3 className="text-sm font-bold text-slate-900">4. Issue &amp; Sub-Issue Taxonomy Master</h3>
             <span className="text-xs text-slate-500">
-              Hierarchical master data required for resolved statuses
+              {isOwner
+                ? 'Add, rename or remove entries, then press Save'
+                : 'Read-only — only the owner account can change this list'}
             </span>
           </div>
 
@@ -459,87 +485,204 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
             <div>
               <label className="block font-semibold text-slate-700 mb-1">Issue Categories</label>
               <div className="space-y-1 max-h-48 overflow-y-auto border border-slate-200 rounded-lg p-2 bg-slate-50">
-                {Object.keys(issueMaster).map((category) => (
-                  <button
-                    key={category}
-                    type="button"
-                    onClick={() => setSelectedIssueCategory(category)}
-                    className={`w-full text-left px-2.5 py-1.5 rounded text-xs font-medium transition flex items-center justify-between ${
-                      selectedIssueCategory === category
-                        ? 'bg-red-600 text-white font-semibold'
-                        : 'text-slate-700 hover:bg-slate-200'
-                    }`}
-                  >
-                    <span>{category}</span>
-                    <span className="text-[10px] opacity-75">
-                      ({issueMaster[category]?.length || 0})
-                    </span>
-                  </button>
-                ))}
+                {Object.keys(issueMaster).map((category) =>
+                  renamingCategory === category ? (
+                    <div key={category} className="flex items-center gap-1">
+                      <input
+                        value={renameDraft}
+                        onChange={(e) => setRenameDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            commitRenameCategory();
+                          }
+                          if (e.key === 'Escape') cancelRename();
+                        }}
+                        className="flex-1 min-w-0 p-1.5 text-xs rounded border border-indigo-400"
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={commitRenameCategory}
+                        title="Save name"
+                        className="p-1 rounded bg-emerald-600 text-white"
+                      >
+                        <Check className="w-3 h-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelRename}
+                        title="Cancel"
+                        className="p-1 rounded bg-slate-300 text-slate-700"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div
+                      key={category}
+                      className={`group flex items-center gap-1 rounded transition ${
+                        selectedIssueCategory === category ? 'bg-red-600' : 'hover:bg-slate-200'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setSelectedIssueCategory(category)}
+                        className={`flex-1 min-w-0 text-left px-2.5 py-1.5 rounded text-xs font-medium flex items-center justify-between ${
+                          selectedIssueCategory === category ? 'text-white font-semibold' : 'text-slate-700'
+                        }`}
+                      >
+                        <span className="truncate">{category}</span>
+                        <span className="text-[10px] opacity-75 shrink-0 ml-1">
+                          ({issueMaster[category]?.length || 0})
+                        </span>
+                      </button>
+                      {isOwner && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => startRenameCategory(category)}
+                            title="Rename category"
+                            className={`p-1 shrink-0 ${
+                              selectedIssueCategory === category
+                                ? 'text-white/80 hover:text-white'
+                                : 'text-slate-400 hover:text-indigo-600'
+                            }`}
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveIssueCategory(category)}
+                            title="Remove category"
+                            className={`p-1 mr-1 shrink-0 ${
+                              selectedIssueCategory === category
+                                ? 'text-white/80 hover:text-white'
+                                : 'text-slate-400 hover:text-rose-600'
+                            }`}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )
+                )}
               </div>
 
-              <div className="flex items-center gap-1.5 mt-2">
-                <input
-                  type="text"
-                  value={newIssueCategory}
-                  onChange={(e) => setNewIssueCategory(e.target.value)}
-                  placeholder="New Category..."
-                  className="flex-1 p-1.5 text-xs rounded border border-slate-300"
-                />
-                <button
-                  type="button"
-                  onClick={handleAddIssueCategory}
-                  className="px-2.5 py-1.5 bg-slate-800 text-white rounded text-xs font-semibold"
-                >
-                  Add
-                </button>
-              </div>
+              {isOwner && (
+                <div className="flex items-center gap-1.5 mt-2">
+                  <input
+                    type="text"
+                    value={newIssueCategory}
+                    onChange={(e) => setNewIssueCategory(e.target.value)}
+                    placeholder="New Category..."
+                    className="flex-1 min-w-0 p-1.5 text-xs rounded border border-slate-300"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddIssueCategory}
+                    className="px-2.5 py-1.5 bg-slate-800 text-white rounded text-xs font-semibold shrink-0"
+                  >
+                    Add
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Sub Issues for selected category */}
             <div className="md:col-span-2">
               <label className="block font-semibold text-slate-700 mb-1">
-                Sub-Issues under <span className="text-red-600">{selectedIssueCategory}</span>
+                Sub-Issues under <span className="text-red-600">{selectedIssueCategory || '—'}</span>
               </label>
               <div className="space-y-1.5 max-h-48 overflow-y-auto border border-slate-200 rounded-lg p-3 bg-white">
                 {(issueMaster[selectedIssueCategory] || []).length === 0 ? (
                   <div className="text-slate-400 py-4 text-center">No sub-issues added yet.</div>
                 ) : (
-                  (issueMaster[selectedIssueCategory] || []).map((sub) => (
-                    <div
-                      key={sub}
-                      className="flex items-center justify-between px-2.5 py-1.5 rounded bg-slate-50 border border-slate-200 text-slate-800"
-                    >
-                      <span>{sub}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveSubIssue(sub)}
-                        className="text-slate-400 hover:text-rose-600"
+                  (issueMaster[selectedIssueCategory] || []).map((sub) =>
+                    renamingSubIssue === sub ? (
+                      <div key={sub} className="flex items-center gap-1.5">
+                        <input
+                          value={renameDraft}
+                          onChange={(e) => setRenameDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              commitRenameSubIssue();
+                            }
+                            if (e.key === 'Escape') cancelRename();
+                          }}
+                          className="flex-1 min-w-0 px-2.5 py-1.5 text-xs rounded border border-indigo-400"
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={commitRenameSubIssue}
+                          title="Save name"
+                          className="p-1.5 rounded bg-emerald-600 text-white"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelRename}
+                          title="Cancel"
+                          className="p-1.5 rounded bg-slate-300 text-slate-700"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div
+                        key={sub}
+                        className="flex items-center justify-between px-2.5 py-1.5 rounded bg-slate-50 border border-slate-200 text-slate-800"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))
+                        <span className="truncate">{sub}</span>
+                        {isOwner && (
+                          <span className="flex items-center gap-1 shrink-0 ml-2">
+                            <button
+                              type="button"
+                              onClick={() => startRenameSubIssue(sub)}
+                              title="Rename sub-issue"
+                              className="text-slate-400 hover:text-indigo-600"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveSubIssue(sub)}
+                              title="Remove sub-issue"
+                              className="text-slate-400 hover:text-rose-600"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </span>
+                        )}
+                      </div>
+                    )
+                  )
                 )}
               </div>
 
-              <div className="flex items-center gap-2 mt-2">
-                <input
-                  type="text"
-                  value={newSubIssueInput}
-                  onChange={(e) => setNewSubIssueInput(e.target.value)}
-                  placeholder={`Add sub-issue for ${selectedIssueCategory}...`}
-                  className="flex-1 p-2 rounded-lg border border-slate-300 text-xs"
-                />
-                <button
-                  type="button"
-                  onClick={handleAddSubIssue}
-                  className="px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-semibold flex items-center gap-1"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Sub-Issue</span>
-                </button>
-              </div>
+              {isOwner && (
+                <div className="flex items-center gap-2 mt-2">
+                  <input
+                    type="text"
+                    value={newSubIssueInput}
+                    onChange={(e) => setNewSubIssueInput(e.target.value)}
+                    placeholder={`Add sub-issue for ${selectedIssueCategory || 'selected category'}...`}
+                    className="flex-1 min-w-0 p-2 rounded-lg border border-slate-300 text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddSubIssue}
+                    className="px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Sub-Issue</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -604,11 +747,12 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
 
           <button
             type="submit"
-            disabled={isSaving}
-            className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold shadow-md transition flex items-center gap-2 disabled:opacity-50"
+            disabled={isSaving || !isOwner}
+            title={isOwner ? 'Save master configuration' : 'Only the owner account can save these settings'}
+            className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold shadow-md transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Save className="w-4 h-4" />
-            <span>{isSaving ? 'SAVING...' : 'SAVE CONFIGURATION'}</span>
+            {isOwner ? <Save className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+            <span>{isSaving ? 'SAVING...' : isOwner ? 'SAVE CONFIGURATION' : 'OWNER ONLY'}</span>
           </button>
         </div>
       </form>

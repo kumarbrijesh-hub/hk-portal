@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Disruption } from '../types';
 import { StatusBadge, BucketBadge } from './StatusBadge';
+import { readIssues, readSubIssues } from '../utils/issueTaxonomy';
 
 interface LiveTrackerTableProps {
   disruptions: Disruption[];
@@ -178,8 +179,8 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
         d.currentStatus,
         d.latestLiveUpdate,
         d.remark || '',
-        d.issue || '',
-        d.subIssue || '',
+        readIssues(d).join(' | '),
+        readSubIssues(d).join(' | '),
         d.endTime || '',
         d.duration || '',
         d.ticketClosedAt || '',
@@ -562,12 +563,20 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
                       <StatusBadge status={d.currentStatus} />
                     </td>
 
-                    {/* Issue / Sub Issue */}
+                    {/* Issue / Sub Issues — a disruption can carry several */}
                     <td className="py-3 px-3">
-                      {d.issue ? (
+                      {readSubIssues(d).length > 0 ? (
                         <div>
-                          <div className="font-semibold text-slate-800 text-[11px]">{d.issue}</div>
-                          <div className="text-[10px] text-slate-500">{d.subIssue}</div>
+                          <div className="font-semibold text-slate-800 text-[11px]">
+                            {readIssues(d).join(', ') || '—'}
+                          </div>
+                          <div className="text-[10px] text-slate-500 flex flex-wrap gap-1 mt-0.5">
+                            {readSubIssues(d).map((sub) => (
+                              <span key={sub} className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200">
+                                {sub}
+                              </span>
+                            ))}
+                          </div>
                         </div>
                       ) : (
                         <span className="text-slate-400">—</span>

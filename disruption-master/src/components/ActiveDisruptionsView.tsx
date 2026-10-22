@@ -27,6 +27,7 @@ import {
   exportActiveReportToPNG,
 } from '../utils/reportExport';
 import { getCurrentISTDate, formatProFixGeneratedTimestamp, calculateDurationHours } from '../utils/dateUtils';
+import { readIssues, readSubIssues } from '../utils/issueTaxonomy';
 
 interface ActiveDisruptionsViewProps {
   allDisruptions: Disruption[];
@@ -133,7 +134,9 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
 
   // Check if disruption belongs to Auditing & Non-Admin section
   const isAuditOrNonAdmin = (d: Disruption): boolean => {
-    const text = `${d.currentStatus} ${d.bucket} ${d.issue || ''} ${d.subIssue || ''} ${d.latestLiveUpdate || ''}`.toLowerCase();
+    const text = `${d.currentStatus} ${d.bucket} ${readIssues(d).join(' ')} ${readSubIssues(d).join(
+      ' '
+    )} ${d.latestLiveUpdate || ''}`.toLowerCase();
     return (
       text.includes('audit') ||
       text.includes('non-admin') ||

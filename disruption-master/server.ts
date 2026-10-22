@@ -9,6 +9,7 @@ import { DEFAULT_CONFIG, INITIAL_OUTLETS, DEFAULT_CC_POCS, DEFAULT_ISSUE_MASTER 
 import { INITIAL_DISRUPTIONS } from './src/data/initialDisruptions';
 import { AppConfig, Disruption, DisruptionUpdateHistory, OutletMaster, SyncStatus } from './src/types';
 import { formatToIST, getCurrentISTDate } from './src/utils/dateUtils';
+import { deriveIssues, readIssues, readSubIssues } from './src/utils/issueTaxonomy';
 
 // Hosting platforms inject the port; 3000 stays the local default.
 const PORT = Number(process.env.PORT ?? 3000);
@@ -901,13 +902,19 @@ async function startServer() {
       return res.status(400).json({ error: 'Current Status is mandatory.' });
     }
 
+    // Only sub-issues are captured; the parent issue comes from the master.
+    const createSubIssues: string[] = (
+      Array.isArray(data.subIssues) ? data.subIssues : data.subIssue ? [data.subIssue] : []
+    )
+      .map((s: unknown) => String(s).trim())
+      .filter(Boolean);
+    const createIssues = deriveIssues(createSubIssues, db.config.issueMaster);
+
     const resolvedStatuses = ['Resolved by RAC', 'Resolved by OEM', 'Resolved by Dealer', 'Resolved by CC'];
-    if (resolvedStatuses.includes(data.currentStatus)) {
-      if (!data.issue || !data.issue.trim() || !data.subIssue || !data.subIssue.trim()) {
-        return res.status(400).json({
-          error: `Issue and Sub Issue are mandatory when status is "${data.currentStatus}".`,
-        });
-      }
+    if (resolvedStatuses.includes(data.currentStatus) && createSubIssues.length === 0) {
+      return res.status(400).json({
+        error: `Select at least one Sub Issue when status is "${data.currentStatus}".`,
+      });
     }
 
     if (!data.latestLiveUpdate || !data.latestLiveUpdate.trim()) {
@@ -1010,8 +1017,10 @@ async function startServer() {
       bucket: data.bucket,
       ticketId: data.ticketId ? data.ticketId.trim() : undefined,
       currentStatus: data.currentStatus,
-      issue: data.issue ? data.issue.trim() : undefined,
-      subIssue: data.subIssue ? data.subIssue.trim() : undefined,
+      subIssues: createSubIssues,
+      issues: createIssues,
+      subIssue: createSubIssues[0] ?? undefined,
+      issue: createIssues[0] ?? undefined,
       latestLiveUpdate: data.latestLiveUpdate.trim(),
       lastUpdatedBy: data.createdBy || data.ccPoc || 'Operator',
       lastUpdatedAt: formattedIST,
@@ -1034,7 +1043,7 @@ async function startServer() {
   // Disruptions - ADD LIVE UPDATE
   app.post('/api/disruptions/:id/updates', (req, res) => {
     const disruptionId = req.params.id;
-    const { updateText, updatedBy, newStatus, issue, subIssue } = req.body;
+    const { updateText, updatedBy, newStatus, subIssues, subIssue } = req.body;
     const { formattedIST } = getCurrentISTDate();
 
     if (!updateText || !updateText.trim()) {
@@ -1049,14 +1058,19 @@ async function startServer() {
     const previousStatus = disruption.currentStatus;
     const targetStatus = newStatus || previousStatus;
 
+    // Sub-issues arrive as a list; the parent issues are looked up, not sent.
+    const incomingSubIssues: string[] | undefined = Array.isArray(subIssues)
+      ? subIssues.map((s: unknown) => String(s).trim()).filter(Boolean)
+      : subIssue !== undefined
+      ? [String(subIssue).trim()].filter(Boolean)
+      : undefined;
+    const effectiveSubIssues = incomingSubIssues ?? readSubIssues(disruption);
+
     const resolvedStatuses = ['Resolved by RAC', 'Resolved by OEM', 'Resolved by Dealer', 'Resolved by CC'];
-    if (resolvedStatuses.includes(targetStatus)) {
-      if ((!issue || !issue.trim()) && !disruption.issue) {
-        return res.status(400).json({ error: `Issue is required when setting status to "${targetStatus}".` });
-      }
-      if ((!subIssue || !subIssue.trim()) && !disruption.subIssue) {
-        return res.status(400).json({ error: `Sub Issue is required when setting status to "${targetStatus}".` });
-      }
+    if (resolvedStatuses.includes(targetStatus) && effectiveSubIssues.length === 0) {
+      return res
+        .status(400)
+        .json({ error: `Select at least one Sub Issue when setting status to "${targetStatus}".` });
     }
 
     const historyItem: DisruptionUpdateHistory = {
@@ -1076,8 +1090,13 @@ async function startServer() {
     disruption.lastUpdatedAt = formattedIST;
     disruption.updatedAt = formattedIST;
 
-    if (issue) disruption.issue = issue;
-    if (subIssue) disruption.subIssue = subIssue;
+    if (incomingSubIssues) {
+      const effectiveIssues = deriveIssues(effectiveSubIssues, db.config.issueMaster);
+      disruption.subIssues = effectiveSubIssues;
+      disruption.issues = effectiveIssues;
+      disruption.subIssue = effectiveSubIssues[0] ?? '';
+      disruption.issue = effectiveIssues[0] ?? '';
+    }
 
     saveDb();
 
@@ -1150,15 +1169,21 @@ async function startServer() {
     const previousStatus = existing.currentStatus;
     const targetStatus = updates.currentStatus || previousStatus;
 
+    // Resolution taxonomy: the operator sends sub-issues, we derive the parents.
+    const incomingSubIssues: string[] | undefined = Array.isArray(updates.subIssues)
+      ? updates.subIssues.map((s: unknown) => String(s).trim()).filter(Boolean)
+      : updates.subIssue !== undefined
+      ? [String(updates.subIssue).trim()].filter(Boolean)
+      : undefined;
+
+    const effectiveSubIssues = incomingSubIssues ?? readSubIssues(existing);
+
     const resolvedStatuses = ['Resolved by RAC', 'Resolved by OEM', 'Resolved by Dealer', 'Resolved by CC'];
-    if (resolvedStatuses.includes(targetStatus)) {
-      if (!updates.issue && !existing.issue) {
-        return res.status(400).json({ error: 'Issue is mandatory for resolved status.' });
-      }
-      if (!updates.subIssue && !existing.subIssue) {
-        return res.status(400).json({ error: 'Sub Issue is mandatory for resolved status.' });
-      }
+    if (resolvedStatuses.includes(targetStatus) && effectiveSubIssues.length === 0) {
+      return res.status(400).json({ error: 'Select at least one Sub Issue before resolving.' });
     }
+
+    const effectiveIssues = deriveIssues(effectiveSubIssues, db.config.issueMaster);
 
     if (updates.bucket === 'Breakdown' && !updates.ticketId && !existing.ticketId) {
       return res.status(400).json({ error: 'Disruption Ticket ID is mandatory for Breakdown.' });
@@ -1188,6 +1213,11 @@ async function startServer() {
     db.disruptions[index] = {
       ...existing,
       ...updates,
+      subIssues: effectiveSubIssues,
+      issues: effectiveIssues,
+      // Singular fields mirror the first entry so the sheet export stays stable.
+      subIssue: effectiveSubIssues[0] ?? '',
+      issue: effectiveIssues[0] ?? '',
       ccFrtMins: normaliseFrt(updates.ccFrtMins, existing.ccFrtMins),
       mstFrtMins: normaliseFrt(updates.mstFrtMins, existing.mstFrtMins),
       updatedAt: formattedIST,
@@ -1250,6 +1280,8 @@ async function startServer() {
       'Remark',
       'Issue Identified (Mandatory)',
       'Sub-issue Identified (Mandatory)',
+      'All Sub-issues Identified',
+      'Sub-issue Count',
       'End time (Auto)',
       'Duration (Auto)',
       'Ticket Closed At (Auto)',
@@ -1293,8 +1325,10 @@ async function startServer() {
         d.currentStatus,
         d.latestLiveUpdate,
         d.remark || '',
-        d.issue || '',
+        readIssues(d).join(' | '),
         d.subIssue || '',
+        readSubIssues(d).join(' | '),
+        String(readSubIssues(d).length),
         d.endTime || '',
         d.duration || '',
         d.ticketClosedAt || '',

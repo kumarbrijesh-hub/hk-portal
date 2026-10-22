@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import { toPng } from 'html-to-image';
 import { Disruption } from '../types';
 import { getCurrentISTDate, getProFixFileTimestamp } from './dateUtils';
+import { readIssues, readSubIssues } from './issueTaxonomy';
 
 export async function exportActiveReportToPNG(elementId: string, customFilename?: string): Promise<void> {
   const node = document.getElementById(elementId);
@@ -68,7 +69,8 @@ export function exportActiveReportToCSV(disruptions: Disruption[], activeFilters
     'Disruption Start Time (IST)',
     'Current Status',
     'Issue',
-    'Sub Issue',
+    'Sub Issues',
+    'Sub Issue Count',
     'Latest Live Update',
     'Last Updated By',
     'Last Updated At',
@@ -88,8 +90,9 @@ export function exportActiveReportToCSV(disruptions: Disruption[], activeFilters
     d.ticketId || 'N/A',
     d.disruptionStartDateTime,
     d.currentStatus,
-    `"${(d.issue || '').replace(/"/g, '""')}"`,
-    `"${(d.subIssue || '').replace(/"/g, '""')}"`,
+    `"${readIssues(d).join(' | ').replace(/"/g, '""')}"`,
+    `"${readSubIssues(d).join(' | ').replace(/"/g, '""')}"`,
+    String(readSubIssues(d).length),
     `"${(d.latestLiveUpdate || '').replace(/"/g, '""')}"`,
     d.lastUpdatedBy,
     d.lastUpdatedAt,
@@ -138,8 +141,9 @@ export function exportActiveReportToExcel(disruptions: Disruption[], activeFilte
     'Ticket ID': d.ticketId || 'N/A',
     'Disruption Start Time (IST)': d.disruptionStartDateTime,
     'Current Status': d.currentStatus,
-    'Issue': d.issue || 'N/A',
-    'Sub Issue': d.subIssue || 'N/A',
+    'Issue': readIssues(d).join(' | ') || 'N/A',
+    'Sub Issues': readSubIssues(d).join(' | ') || 'N/A',
+    'Sub Issue Count': readSubIssues(d).length,
     'Latest Live Update': d.latestLiveUpdate,
     'Last Updated By': d.lastUpdatedBy,
     'Last Updated At': d.lastUpdatedAt,
