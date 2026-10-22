@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { setSessionToken } from './services/session';
 import { AppTab, Header } from './components/Header';
 import { LiveTrackerForm } from './components/LiveTrackerForm';
 import { LiveTrackerTable } from './components/LiveTrackerTable';
@@ -61,19 +62,22 @@ function LoginScreen({ auth, onSignedIn }: { auth: AuthState; onSignedIn: () => 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
+      const data = await res.json().catch(() => ({} as any));
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `Sign in failed (HTTP ${res.status}).`);
       }
       setPassword('');
 
-      // The server accepted the address; the session now depends on the browser
-      // keeping the cookie. Confirm it did, so a silently dropped cookie shows
-      // up as a message instead of bouncing back to a blank sign-in form.
+      // Hold the token so later calls can carry it in a header; the cookie the
+      // server also set does not survive the hop back in.
+      if (data.token) setSessionToken(data.token);
+
+      // Confirm the session actually took before leaving the form, so a
+      // rejected token shows as a message instead of a blank sign-in screen.
       const check = await fetch('/api/auth/me').then((r) => r.json()).catch(() => null);
       if (!check?.authenticated) {
         throw new Error(
-          'Signed in, but the browser did not keep the session cookie. Open the app in a normal tab (not a preview frame) and allow cookies for this site.'
+          'Signed in, but the session could not be stored. Allow site data for this page, then reload and try again.'
         );
       }
       onSignedIn();
@@ -169,6 +173,7 @@ export default function App() {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } finally {
+      setSessionToken(null);
       refreshAuth();
     }
   }, [refreshAuth]);

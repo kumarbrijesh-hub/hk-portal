@@ -72,6 +72,12 @@ const OWNER_EMAILS = (process.env.OWNER_EMAILS ?? 'kumarbrijesh@grofers.com')
 const APP_PASSWORD = process.env.APP_PASSWORD ?? '';
 const PASSWORD_REQUIRED = APP_PASSWORD.length > 0;
 const SESSION_COOKIE = 'dms_session';
+/**
+ * The platform edge strips the Cookie header before a request reaches this
+ * container, so the cookie alone can never carry a session here. The same
+ * signed token is accepted from this header, which the edge forwards intact.
+ */
+const SESSION_HEADER = 'x-dms-session';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // one shift
 
 /**
@@ -347,9 +353,17 @@ function toSessionUser(user: StoredUser): SessionUser {
   return { email: user.email, name: user.name, contact: user.contact, role: roleFor(user.email) };
 }
 
-/** The signed-in user for a request, or null when the cookie is missing or stale. */
+/** The session token a request carries, from the header first, then the cookie. */
+function sessionTokenFromRequest(req: express.Request): string | undefined {
+  const header = req.headers[SESSION_HEADER];
+  const fromHeader = Array.isArray(header) ? header[0] : header;
+  if (fromHeader) return fromHeader;
+  return readCookie(req.headers.cookie, SESSION_COOKIE);
+}
+
+/** The signed-in user for a request, or null when the token is missing or stale. */
 function userFromRequest(req: express.Request): SessionUser | null {
-  const email = readSession(readCookie(req.headers.cookie, SESSION_COOKIE));
+  const email = readSession(sessionTokenFromRequest(req));
   if (!email) return null;
   const stored = findStoredUser(email);
   return toSessionUser(
@@ -1047,14 +1061,14 @@ async function startServer() {
   app.get('/api/auth/me', (req, res) => {
     const user = userFromRequest(req);
     if (!user) {
-      // Separates the two ways a session goes missing: the browser never sent
-      // the cookie (blocked, or a cross-site frame dropping a SameSite=Lax
-      // cookie), or it sent one this server will not accept (stale signing key,
-      // expired token). Names only, never the token itself.
-      const sent = readCookie(req.headers.cookie, SESSION_COOKIE) !== undefined;
+      // Separates the ways a session goes missing: no token reached this
+      // server at all, or one did and this server will not accept it (stale
+      // signing key, expired token). Names only, never the token itself.
+      const sent = sessionTokenFromRequest(req) !== undefined;
       console.warn(
-        `[Auth] /me unauthenticated — session cookie ${sent ? 'present but not valid' : 'not sent by the browser'}` +
-          ` (cookie header ${req.headers.cookie ? 'present' : 'absent'}).`
+        `[Auth] /me unauthenticated — session token ${sent ? 'present but not valid' : 'absent'}` +
+          ` (header ${req.headers[SESSION_HEADER] ? 'present' : 'absent'},` +
+          ` cookie header ${req.headers.cookie ? 'present' : 'absent'}).`
       );
     }
     res.json({
@@ -1102,16 +1116,25 @@ async function startServer() {
     loginAttempts.delete(key);
     const user = upsertUser(email);
     const expiresAt = Date.now() + SESSION_TTL_MS;
+    const token = signSession(email, expiresAt);
     // With `trust proxy` on, req.protocol reflects the scheme the browser used.
     const secure = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https';
     res.setHeader(
       'Set-Cookie',
-      `${SESSION_COOKIE}=${encodeURIComponent(signSession(email, expiresAt))}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(
+      `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(
         SESSION_TTL_MS / 1000
       )}${secure ? '; Secure' : ''}`
     );
     console.log(`[Auth] Signed in ${maskEmail(email)} as ${roleFor(email)} (secure cookie: ${secure}).`);
-    res.json({ authenticated: true, passwordRequired: PASSWORD_REQUIRED, user: toSessionUser(user) });
+    // The token also goes in the body because the edge drops the cookie on the
+    // way back in; the client replays it in SESSION_HEADER.
+    res.json({
+      authenticated: true,
+      passwordRequired: PASSWORD_REQUIRED,
+      user: toSessionUser(user),
+      token,
+      expiresAt,
+    });
   });
 
   app.post('/api/auth/logout', (req, res) => {
