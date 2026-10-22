@@ -103,6 +103,13 @@ export interface SessionUser {
   role: UserRole;
 }
 
+/** Keeps sign-in logs readable without writing whole addresses to the log. */
+function maskEmail(email: string): string {
+  const at = email.lastIndexOf('@');
+  if (at < 1) return '***';
+  return `${email.slice(0, 2)}***${email.slice(at)}`;
+}
+
 function isAllowedEmail(email: string): boolean {
   const at = email.lastIndexOf('@');
   if (at < 1) return false;
@@ -160,20 +167,29 @@ const loginAttempts = new Map<string, { count: number; firstAt: number }>();
 const LOGIN_WINDOW_MS = 5 * 60 * 1000;
 const LOGIN_MAX_ATTEMPTS = 10;
 
-function loginThrottled(ip: string): boolean {
-  const entry = loginAttempts.get(ip);
+/**
+ * Throttle key. Behind the platform ingress every request shares one client
+ * address, so keying on the address alone would let a single mistyped sign-in
+ * lock out the whole team. The address the person is trying is part of the key.
+ */
+function loginKey(ip: string, email: string): string {
+  return `${ip}|${email}`;
+}
+
+function loginThrottled(key: string): boolean {
+  const entry = loginAttempts.get(key);
   if (!entry) return false;
   if (Date.now() - entry.firstAt > LOGIN_WINDOW_MS) {
-    loginAttempts.delete(ip);
+    loginAttempts.delete(key);
     return false;
   }
   return entry.count >= LOGIN_MAX_ATTEMPTS;
 }
 
-function recordFailedLogin(ip: string): void {
-  const entry = loginAttempts.get(ip);
+function recordFailedLogin(key: string): void {
+  const entry = loginAttempts.get(key);
   if (!entry || Date.now() - entry.firstAt > LOGIN_WINDOW_MS) {
-    loginAttempts.set(ip, { count: 1, firstAt: Date.now() });
+    loginAttempts.set(key, { count: 1, firstAt: Date.now() });
   } else {
     entry.count++;
   }
@@ -985,6 +1001,11 @@ function restartAutoSync() {
 
 async function startServer() {
   const app = express();
+  // One ingress hop sits in front of the pod. Without this every request looks
+  // like it came from the proxy, so a per-client throttle would be one shared
+  // bucket, and req.protocol would always read "http" behind TLS termination.
+  app.set('trust proxy', 1);
+
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -1026,16 +1047,21 @@ async function startServer() {
 
   app.post('/api/auth/login', (req, res) => {
     const ip = req.ip || 'unknown';
-    if (loginThrottled(ip)) {
-      return res.status(429).json({ error: 'Too many failed attempts. Try again in a few minutes.' });
-    }
-
     const email = String(req.body?.email ?? '').trim().toLowerCase();
     if (!email) {
+      console.warn('[Auth] Sign-in rejected: no address supplied.');
       return res.status(400).json({ error: 'Enter your work email address.' });
     }
+
+    const key = loginKey(ip, email);
+    if (loginThrottled(key)) {
+      console.warn(`[Auth] Sign-in throttled for ${maskEmail(email)}.`);
+      return res.status(429).json({ error: 'Too many failed attempts for this address. Try again in a few minutes.' });
+    }
+
     if (!isAllowedEmail(email)) {
-      recordFailedLogin(ip);
+      recordFailedLogin(key);
+      console.warn(`[Auth] Sign-in rejected: ${maskEmail(email)} is not on an allowed domain.`);
       return res.status(403).json({
         error: `Only ${ALLOWED_EMAIL_DOMAINS.map((d) => '@' + d).join(' and ')} addresses can sign in.`,
       });
@@ -1047,21 +1073,24 @@ async function startServer() {
       const b = Buffer.from(APP_PASSWORD);
       const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
       if (!ok) {
-        recordFailedLogin(ip);
+        recordFailedLogin(key);
+        console.warn(`[Auth] Sign-in rejected: wrong password for ${maskEmail(email)}.`);
         return res.status(401).json({ error: 'Incorrect password.' });
       }
     }
 
-    loginAttempts.delete(ip);
+    loginAttempts.delete(key);
     const user = upsertUser(email);
     const expiresAt = Date.now() + SESSION_TTL_MS;
-    const secure = req.headers['x-forwarded-proto'] === 'https';
+    // With `trust proxy` on, req.protocol reflects the scheme the browser used.
+    const secure = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https';
     res.setHeader(
       'Set-Cookie',
       `${SESSION_COOKIE}=${encodeURIComponent(signSession(email, expiresAt))}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(
         SESSION_TTL_MS / 1000
       )}${secure ? '; Secure' : ''}`
     );
+    console.log(`[Auth] Signed in ${maskEmail(email)} as ${roleFor(email)} (secure cookie: ${secure}).`);
     res.json({ authenticated: true, passwordRequired: PASSWORD_REQUIRED, user: toSessionUser(user) });
   });
 

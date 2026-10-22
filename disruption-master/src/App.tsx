@@ -63,9 +63,19 @@ function LoginScreen({ auth, onSignedIn }: { auth: AuthState; onSignedIn: () => 
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'Sign in failed.');
+        throw new Error(data.error || `Sign in failed (HTTP ${res.status}).`);
       }
       setPassword('');
+
+      // The server accepted the address; the session now depends on the browser
+      // keeping the cookie. Confirm it did, so a silently dropped cookie shows
+      // up as a message instead of bouncing back to a blank sign-in form.
+      const check = await fetch('/api/auth/me').then((r) => r.json()).catch(() => null);
+      if (!check?.authenticated) {
+        throw new Error(
+          'Signed in, but the browser did not keep the session cookie. Open the app in a normal tab (not a preview frame) and allow cookies for this site.'
+        );
+      }
       onSignedIn();
     } catch (err: any) {
       setError(err.message || 'Sign in failed.');
