@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 /**
  * Grouped column chart for date-wise trends.
@@ -33,7 +33,7 @@ interface TrendChartProps {
   emptyMessage?: string;
 }
 
-const VIEW_WIDTH = 1000;
+const FALLBACK_VIEW_WIDTH = 1000;
 const PAD_LEFT = 54;
 const PAD_RIGHT = 16;
 const PAD_TOP = 14;
@@ -113,7 +113,26 @@ export const TrendChart: React.FC<TrendChartProps> = ({
 }) => {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
-  const plotWidth = VIEW_WIDTH - PAD_LEFT - PAD_RIGHT;
+  /**
+   * The viewBox is sized to the container so one viewBox unit is one CSS pixel.
+   * Without this a chart in a container wider than the viewBox is letterboxed —
+   * `preserveAspectRatio` centres it and leaves gutters down both sides.
+   */
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [viewWidth, setViewWidth] = useState(FALLBACK_VIEW_WIDTH);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (width && width > 0) setViewWidth(Math.round(width));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const plotWidth = viewWidth - PAD_LEFT - PAD_RIGHT;
   const plotHeight = height - PAD_TOP - PAD_BOTTOM;
 
   const { yMax, ticks } = useMemo(() => {
@@ -182,9 +201,9 @@ export const TrendChart: React.FC<TrendChartProps> = ({
         )}
       </figcaption>
 
-      <div className="relative">
+      <div className="relative" ref={containerRef}>
         <svg
-          viewBox={`0 0 ${VIEW_WIDTH} ${height}`}
+          viewBox={`0 0 ${viewWidth} ${height}`}
           width="100%"
           height={height}
           role="img"
@@ -196,7 +215,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
             <g key={t}>
               <line
                 x1={PAD_LEFT}
-                x2={VIEW_WIDTH - PAD_RIGHT}
+                x2={viewWidth - PAD_RIGHT}
                 y1={yFor(t)}
                 y2={yFor(t)}
                 stroke={GRID}
@@ -280,7 +299,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
           {/* Baseline sits above the marks so columns read as grown from it */}
           <line
             x1={PAD_LEFT}
-            x2={VIEW_WIDTH - PAD_RIGHT}
+            x2={viewWidth - PAD_RIGHT}
             y1={PAD_TOP + plotHeight}
             y2={PAD_TOP + plotHeight}
             stroke={INK_MUTED}
@@ -293,7 +312,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
           <div
             className="absolute pointer-events-none z-10 px-2.5 py-1.5 rounded-lg bg-slate-900 text-white shadow-lg text-[11px] whitespace-nowrap"
             style={{
-              left: `${((PAD_LEFT + bandWidth * (hoverIndex + 0.5)) / VIEW_WIDTH) * 100}%`,
+              left: `${((PAD_LEFT + bandWidth * (hoverIndex + 0.5)) / viewWidth) * 100}%`,
               top: 0,
               transform: 'translateX(-50%)',
               backgroundColor: '#18181b',

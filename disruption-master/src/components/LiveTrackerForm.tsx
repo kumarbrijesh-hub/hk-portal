@@ -435,7 +435,7 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
                 1. Outlet ID (<span className="font-mono text-red-600">outlet_id</span>) & Store Details
               </span>
               <span className="text-[10px] bg-amber-100 text-amber-900 font-bold px-2 py-0.5 rounded border border-amber-200">
-                Direct Entry (खुद दर्ज करें)
+                Direct Entry
               </span>
               {selectedOutlet ? (
                 <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded border border-emerald-300">

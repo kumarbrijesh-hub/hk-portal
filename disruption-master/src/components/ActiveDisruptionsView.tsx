@@ -915,7 +915,9 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                 <th className="py-3 px-3 text-center">CC FRT (M)</th>
                 <th className="py-3 px-3 text-center">MST FRT (M)</th>
                 <th className="py-3 px-3">Ticket ID</th>
-                <th className="py-3 px-3 text-right">Actions</th>
+                <th className="py-3 px-3 text-right" data-export-exclude="true">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
@@ -1014,8 +1016,8 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                         )}
                       </td>
 
-                      {/* Actions */}
-                      <td className="py-3 px-3 text-right whitespace-nowrap">
+                      {/* Actions. Screen-only: buttons are dead weight in a report image. */}
+                      <td className="py-3 px-3 text-right whitespace-nowrap" data-export-exclude="true">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
@@ -1083,7 +1085,9 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                     <th className="py-3 px-3 text-center">CC FRT (M)</th>
                     <th className="py-3 px-3 text-center">MST FRT (M)</th>
                     <th className="py-3 px-3">Ticket ID</th>
-                    <th className="py-3 px-3 text-right">Actions</th>
+                    <th className="py-3 px-3 text-right" data-export-exclude="true">
+                      Actions
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-purple-100 bg-white">
@@ -1191,8 +1195,8 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                           )}
                         </td>
 
-                        {/* Actions */}
-                        <td className="py-3 px-3 text-right whitespace-nowrap">
+                        {/* Actions. Screen-only: buttons are dead weight in a report image. */}
+                        <td className="py-3 px-3 text-right whitespace-nowrap" data-export-exclude="true">
                           <div className="flex items-center justify-end gap-1.5">
                             <button
                               type="button"

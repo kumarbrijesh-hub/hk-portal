@@ -451,7 +451,7 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
               <th className="py-3 px-3 whitespace-nowrap">Ticket State</th>
               <th className="py-3 px-3 whitespace-nowrap">Closure / Down Time</th>
               <th className="py-3 px-3 whitespace-nowrap">Current Status</th>
-              <th className="py-3 px-3 whitespace-nowrap">Issue / Sub Issue</th>
+              <th className="py-3 px-3 min-w-[190px]">Issue / Sub Issue</th>
               <th className="py-3 px-4 min-w-[240px]">Latest Live Update</th>
               <th className="py-3 px-3 whitespace-nowrap">Last Updated By / At</th>
 
@@ -643,7 +643,7 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
                     </td>
 
                     {/* Issue / Sub Issues — a disruption can carry several */}
-                    <td className="py-3 px-3">
+                    <td className="py-3 px-3 min-w-[190px]">
                       {readSubIssues(d).length > 0 ? (
                         <div>
                           <div className="font-semibold text-slate-800 text-[11px]">

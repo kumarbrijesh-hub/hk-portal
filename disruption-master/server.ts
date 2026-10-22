@@ -25,7 +25,7 @@ import {
   SyncStatus,
   SyncStatuses,
 } from './src/types';
-import { formatToIST, getCurrentISTDate, hoursBetween } from './src/utils/dateUtils';
+import { formatDateTimeIST, formatToIST, getCurrentISTDate, hoursBetween } from './src/utils/dateUtils';
 import { deriveIssues, readIssues, readSubIssues } from './src/utils/issueTaxonomy';
 import { formatHoursMinutes } from './src/utils/auditHold';
 import { isAuditStatus } from './src/types';
@@ -47,6 +47,9 @@ function auditStampFor(
 
 // Hosting platforms inject the port; 3000 stays the local default.
 const PORT = Number(process.env.PORT ?? 3000);
+// In the cluster the pod has to accept traffic from the Service, so 0.0.0.0 is
+// the deployed default. Set HOST=127.0.0.1 to keep a local run off the network.
+const HOST = process.env.HOST ?? '0.0.0.0';
 // DATA_DIR is overridable so the JSON store can live on a mounted volume.
 const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'store.json');
@@ -1444,7 +1447,13 @@ async function startServer() {
       ticketClosedAt: data.ticketClosedAt || '',
       ccFrtMins: frt(data.ccFrtMins),
       mstFrtMins: frt(data.mstFrtMins),
-      disruptionStartDateTime: data.disruptionStartDateTime || formattedIST,
+      // Built from the mandatory date and time fields, never from "now": a
+      // back-dated incident must keep its real start, since every duration,
+      // closure and downtime figure is measured from it.
+      disruptionStartDateTime:
+        data.disruptionStartDateTime ||
+        formatDateTimeIST(data.disruptionStartDate, data.disruptionStartTime) ||
+        formattedIST,
       disruptionStartDate: data.disruptionStartDate,
       disruptionStartTime: data.disruptionStartTime,
       ccPoc: data.ccPoc,
@@ -1833,8 +1842,8 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Disruption Management System server running on http://0.0.0.0:${PORT}`);
+  app.listen(PORT, HOST, () => {
+    console.log(`Disruption Management System server running on http://${HOST}:${PORT}`);
   });
 }
 
