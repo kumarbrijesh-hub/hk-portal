@@ -1035,8 +1035,28 @@ async function startServer() {
 
   // --- Auth ---
 
+  // Never let a sign-in answer be reused. Without this an "authenticated: false"
+  // body from before sign-in can be served back from the browser or an
+  // intermediate cache, so a session that really exists reads as missing.
+  app.use('/api/auth', (req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    next();
+  });
+
   app.get('/api/auth/me', (req, res) => {
     const user = userFromRequest(req);
+    if (!user) {
+      // Separates the two ways a session goes missing: the browser never sent
+      // the cookie (blocked, or a cross-site frame dropping a SameSite=Lax
+      // cookie), or it sent one this server will not accept (stale signing key,
+      // expired token). Names only, never the token itself.
+      const sent = readCookie(req.headers.cookie, SESSION_COOKIE) !== undefined;
+      console.warn(
+        `[Auth] /me unauthenticated — session cookie ${sent ? 'present but not valid' : 'not sent by the browser'}` +
+          ` (cookie header ${req.headers.cookie ? 'present' : 'absent'}).`
+      );
+    }
     res.json({
       authenticated: Boolean(user),
       passwordRequired: PASSWORD_REQUIRED,
