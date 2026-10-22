@@ -10,6 +10,7 @@ import {
   Copy,
   Check,
   Columns,
+  Trash2,
   Pin,
   FileSpreadsheet,
   Layers,
@@ -24,12 +25,17 @@ interface LiveTrackerTableProps {
   disruptions: Disruption[];
   onOpenLiveUpdate: (disruption: Disruption) => void;
   onOpenHistory: (disruption: Disruption) => void;
+  /** Delete is shown only to the owner account. */
+  isOwner?: boolean;
+  onDeleteDisruption?: (disruption: Disruption) => Promise<void>;
 }
 
 export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
   disruptions,
   onOpenLiveUpdate,
   onOpenHistory,
+  isOwner = false,
+  onDeleteDisruption,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -42,6 +48,21 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
   const [showLODColumns, setShowLODColumns] = useState(true);
   const [copiedNotification, setCopiedNotification] = useState(false);
   const [downloadNotification, setDownloadNotification] = useState<string | null>(null);
+
+  // Two-step delete, so one stray click cannot drop a record.
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleDelete = async (d: Disruption) => {
+    if (!onDeleteDisruption) return;
+    setDeletingId(d.disruptionId);
+    try {
+      await onDeleteDisruption(d);
+      setConfirmDeleteId(null);
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   // Filtered and sorted disruptions
   const filteredDisruptions = useMemo(() => {
@@ -682,6 +703,50 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
                           <History className="w-3 h-3" />
                           <span>History ({d.updateHistory?.length || 1})</span>
                         </button>
+
+                        {/* Deleting is owner-only: a wrong entry by a teammate is
+                            the owner's to remove, not the team's. */}
+                        {isOwner &&
+                          onDeleteDisruption &&
+                          (confirmDeleteId === d.disruptionId ? (
+                            <span className="inline-flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void handleDelete(d);
+                                }}
+                                disabled={deletingId === d.disruptionId}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded bg-rose-600 hover:bg-rose-700 text-white font-semibold text-[11px] transition disabled:opacity-50"
+                                title={`Permanently delete ${d.disruptionId}`}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                <span>{deletingId === d.disruptionId ? 'Deleting...' : 'Confirm'}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConfirmDeleteId(null);
+                                }}
+                                className="px-2 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium text-[11px] transition"
+                              >
+                                Cancel
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setConfirmDeleteId(d.disruptionId);
+                              }}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded bg-white hover:bg-rose-50 text-rose-600 font-medium text-[11px] transition border border-rose-200 cursor-pointer"
+                              title="Delete this entry (owner only)"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          ))}
                       </div>
                     </td>
                   </tr>

@@ -10,6 +10,22 @@ import { INITIAL_DISRUPTIONS } from './src/data/initialDisruptions';
 import { AppConfig, Disruption, DisruptionUpdateHistory, OutletMaster, SyncStatus } from './src/types';
 import { formatToIST, getCurrentISTDate } from './src/utils/dateUtils';
 import { deriveIssues, readIssues, readSubIssues } from './src/utils/issueTaxonomy';
+import { isAuditStatus } from './src/types';
+
+/**
+ * Keeps `auditStartedAt` in step with the status: stamped when a record goes on
+ * audit hold, left alone while it stays there, cleared when it comes off.
+ */
+function auditStampFor(
+  previousStatus: string,
+  nextStatus: string,
+  existingStamp: string | undefined,
+  nowIST: string
+): string | undefined {
+  if (!isAuditStatus(nextStatus)) return undefined;
+  if (isAuditStatus(previousStatus) && existingStamp) return existingStamp;
+  return nowIST;
+}
 
 // Hosting platforms inject the port; 3000 stays the local default.
 const PORT = Number(process.env.PORT ?? 3000);
@@ -1021,6 +1037,7 @@ async function startServer() {
       issues: createIssues,
       subIssue: createSubIssues[0] ?? undefined,
       issue: createIssues[0] ?? undefined,
+      auditStartedAt: isAuditStatus(data.currentStatus) ? formattedIST : undefined,
       latestLiveUpdate: data.latestLiveUpdate.trim(),
       lastUpdatedBy: data.createdBy || data.ccPoc || 'Operator',
       lastUpdatedAt: formattedIST,
@@ -1097,6 +1114,13 @@ async function startServer() {
       disruption.subIssue = effectiveSubIssues[0] ?? '';
       disruption.issue = effectiveIssues[0] ?? '';
     }
+
+    disruption.auditStartedAt = auditStampFor(
+      previousStatus,
+      targetStatus,
+      disruption.auditStartedAt,
+      formattedIST
+    );
 
     saveDb();
 
@@ -1218,6 +1242,7 @@ async function startServer() {
       // Singular fields mirror the first entry so the sheet export stays stable.
       subIssue: effectiveSubIssues[0] ?? '',
       issue: effectiveIssues[0] ?? '',
+      auditStartedAt: auditStampFor(previousStatus, targetStatus, existing.auditStartedAt, formattedIST),
       ccFrtMins: normaliseFrt(updates.ccFrtMins, existing.ccFrtMins),
       mstFrtMins: normaliseFrt(updates.mstFrtMins, existing.mstFrtMins),
       updatedAt: formattedIST,

@@ -120,6 +120,51 @@ export function getProFixFileTimestamp(): string {
 }
 
 /**
+ * Parses the timestamp shapes this app stores — "DD/MM/YYYY HH:MM:SS" written
+ * by the server, and "YYYY-MM-DD HH:MM" as it arrives from sheets — into epoch
+ * milliseconds. The wall-clock reading is always Asia/Kolkata.
+ *
+ * Returns null when the value is missing or cannot be read, so callers can show
+ * a dash instead of inventing a number.
+ */
+export function parseISTTimestamp(value?: string): number | null {
+  if (!value || typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const parts = trimmed.split(/[\sT]+/);
+  const datePart = parts[0];
+  const timePart = parts[1] || '00:00:00';
+
+  const dateBits = datePart.split(/[/.-]/).map(Number);
+  if (dateBits.length === 3 && dateBits.every((n) => Number.isFinite(n))) {
+    const hms = timePart.split(':').map((v) => Number(v) || 0);
+    // A leading 4-digit value means YYYY-MM-DD, otherwise it is DD/MM/YYYY.
+    const isIsoOrder = dateBits[0] > 1000;
+    const year = isIsoOrder ? dateBits[0] : dateBits[2];
+    const month = dateBits[1];
+    const day = isIsoOrder ? dateBits[2] : dateBits[0];
+    const fullYear = year < 100 ? 2000 + year : year;
+
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      // Shift by the IST offset (UTC+5:30) to get a true epoch value.
+      const ms = Date.UTC(fullYear, month - 1, day, hms[0] - 5, hms[1] - 30, hms[2] || 0);
+      if (!isNaN(ms)) return ms;
+    }
+  }
+
+  const fallback = new Date(trimmed).getTime();
+  return isNaN(fallback) ? null : fallback;
+}
+
+/** Whole hours elapsed between an IST timestamp and now; null if unparseable. */
+export function hoursSince(istTimestamp?: string): number | null {
+  const start = parseISTTimestamp(istTimestamp);
+  if (start === null) return null;
+  return (Date.now() - start) / (1000 * 60 * 60);
+}
+
+/**
  * Duration in hours from the disruption start time to now, or null when the
  * start time is missing or unparseable — the caller renders a dash rather than
  * a made-up number.
@@ -129,47 +174,24 @@ export function calculateDurationHours(disruptionStartDateTime?: string, fallbac
     const num = parseFloat(fallbackDuration.replace(/[^0-9.]/g, ''));
     if (!isNaN(num) && num > 0) return num;
   }
-  if (!disruptionStartDateTime) return null;
 
-  try {
-    const parts = disruptionStartDateTime.trim().split(/[\sT]+/);
-    let startTimestamp = 0;
-    if (parts.length >= 2) {
-      const datePart = parts[0];
-      const timePart = parts[1];
-      const dmy = datePart.split(/[/.-]/).map(Number);
-      const hms = timePart.split(':').map((v) => Number(v) || 0);
-      if (dmy.length === 3) {
-        let day = dmy[0];
-        let month = dmy[1];
-        let year = dmy[2];
-        if (dmy[0] > 1000) {
-          // YYYY-MM-DD
-          year = dmy[0];
-          month = dmy[1];
-          day = dmy[2];
-        }
-        const fullYear = year < 100 ? 2000 + year : year;
-        // Asia/Kolkata UTC+5:30
-        const dateObj = new Date(Date.UTC(fullYear, month - 1, day, hms[0] - 5, hms[1] - 30, hms[2] || 0));
-        startTimestamp = dateObj.getTime();
-      }
-    }
+  const startTimestamp = parseISTTimestamp(disruptionStartDateTime);
+  if (startTimestamp === null) return null;
 
-    if (!startTimestamp || isNaN(startTimestamp)) {
-      const parsed = new Date(disruptionStartDateTime).getTime();
-      if (!isNaN(parsed)) startTimestamp = parsed;
-    }
+  const diffMs = Date.now() - startTimestamp;
+  if (diffMs <= 0) return null;
+  return Math.max(0.1, Number((diffMs / (1000 * 60 * 60)).toFixed(1)));
+}
 
-    if (startTimestamp > 0) {
-      const diffMs = Date.now() - startTimestamp;
-      if (diffMs > 0) {
-        return Math.max(0.1, Number((diffMs / (1000 * 60 * 60)).toFixed(1)));
-      }
-    }
-  } catch {
-    // fall through to null
-  }
-
-  return null;
+/**
+ * Hours between two IST timestamps, for closed records where both the start and
+ * the closure are known. Null when either end is missing or the order is wrong.
+ */
+export function hoursBetween(startIST?: string, endIST?: string): number | null {
+  const start = parseISTTimestamp(startIST);
+  const end = parseISTTimestamp(endIST);
+  if (start === null || end === null) return null;
+  const diffMs = end - start;
+  if (diffMs < 0) return null;
+  return Number((diffMs / (1000 * 60 * 60)).toFixed(2));
 }

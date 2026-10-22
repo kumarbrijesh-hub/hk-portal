@@ -40,6 +40,20 @@ export const RESOLVED_STATUSES_REQUIRING_ISSUE: CurrentStatus[] = [
   'Resolved by CC',
 ];
 
+/**
+ * Statuses that put a store on an audit hold. Entering one stamps
+ * `auditStartedAt`, and the hold is expected to come off within
+ * AUDIT_HOLD_LIMIT_HOURS.
+ */
+export const AUDIT_STATUSES: CurrentStatus[] = ['Audit in Process'];
+
+/** After this long on audit, the row is flagged so the team clears the hold. */
+export const AUDIT_HOLD_LIMIT_HOURS = 2.5;
+
+export function isAuditStatus(status: CurrentStatus | string): boolean {
+  return AUDIT_STATUSES.includes(status as CurrentStatus);
+}
+
 export const INACTIVE_STATUSES: CurrentStatus[] = [
   'Resolved by RAC',
   'Resolved by OEM',
@@ -151,6 +165,12 @@ export interface Disruption {
   /** First response time in minutes, entered by the operator. */
   ccFrtMins?: number;
   mstFrtMins?: number;
+
+  /**
+   * When the record was last put on an audit hold (IST, DD/MM/YYYY HH:MM:SS).
+   * Cleared when the status moves off audit. Drives the 2.5-hour reminder.
+   */
+  auditStartedAt?: string;
 
   disruptionStartDateTime: string; // DD/MM/YYYY HH:MM:SS
   disruptionStartDate: string; // YYYY-MM-DD

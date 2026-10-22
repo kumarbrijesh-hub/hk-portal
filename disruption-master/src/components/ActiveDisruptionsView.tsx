@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Download,
   Filter,
@@ -18,8 +18,9 @@ import {
   Pin,
   Clock,
   Sparkles,
+  BellRing,
 } from 'lucide-react';
-import { Disruption, isDisruptionActive } from '../types';
+import { AUDIT_HOLD_LIMIT_HOURS, Disruption, isDisruptionActive } from '../types';
 import { StatusBadge, BucketBadge } from './StatusBadge';
 import {
   exportActiveReportToCSV,
@@ -28,6 +29,7 @@ import {
 } from '../utils/reportExport';
 import { getCurrentISTDate, formatProFixGeneratedTimestamp, calculateDurationHours } from '../utils/dateUtils';
 import { readIssues, readSubIssues } from '../utils/issueTaxonomy';
+import { auditHoldState, expiredAuditHolds, formatHoursMinutes } from '../utils/auditHold';
 
 interface ActiveDisruptionsViewProps {
   allDisruptions: Disruption[];
@@ -56,6 +58,14 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
 
   // UX Highlighting state: Active cursor row pinned on click/hover for effortless scrolling
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
+
+  // Elapsed-time cells and the audit threshold are relative to "now", so nudge
+  // the clock every half minute to keep them honest on a long-open dashboard.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   // Export dropdown state
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
@@ -155,6 +165,14 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
   const auditActiveDisruptions = useMemo(() => {
     return filteredActiveDisruptions.filter((d) => isAuditOrNonAdmin(d));
   }, [filteredActiveDisruptions]);
+
+  // Audit holds past their window. Taken from every active record rather than
+  // the filtered set, so a filter cannot hide one that needs clearing.
+  const overdueAuditHolds = useMemo(
+    () => expiredAuditHolds(allDisruptions.filter((d) => isDisruptionActive(d.currentStatus))),
+    // `nowTick` keeps the 2.5-hour threshold re-evaluating while the tab is open.
+    [allDisruptions, nowTick]
+  );
 
   // ProFix Active Metrics calculation matching report screenshot
   const profixStats = useMemo(() => {
@@ -278,6 +296,52 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
 
   return (
     <div id="active-disruptions-page" className="space-y-6">
+      {/* Audit holds that have outlived their window. Sits at the very top so
+          the team sees which stores need taking off audit. */}
+      {overdueAuditHolds.length > 0 && (
+        <div
+          id="audit-hold-expiry-alert"
+          className="rounded-xl border-2 border-rose-400 bg-rose-50 shadow-sm overflow-hidden"
+        >
+          <div className="bg-rose-600 text-white px-4 py-2.5 flex items-center gap-2">
+            <BellRing className="w-4 h-4 animate-pulse shrink-0" />
+            <span className="text-sm font-bold">
+              {overdueAuditHolds.length} store{overdueAuditHolds.length > 1 ? 's have' : ' has'} been on audit for
+              more than {AUDIT_HOLD_LIMIT_HOURS} hours
+            </span>
+            <span className="ml-auto text-[11px] text-rose-100">Take the audit hold off these stores</span>
+          </div>
+          <ul className="divide-y divide-rose-200">
+            {overdueAuditHolds.map((d) => {
+              const hold = auditHoldState(d);
+              return (
+                <li
+                  key={d.disruptionId}
+                  className="px-4 py-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs"
+                >
+                  <span className="font-mono font-semibold text-slate-500 w-40 shrink-0">{d.outletId}</span>
+                  <span className="font-bold text-slate-900 flex-1 min-w-[12rem]">{d.storeName}</span>
+                  <span className="text-slate-600">{d.city}</span>
+                  <span className="font-mono text-rose-700 font-bold">
+                    {formatHoursMinutes(hold.hoursOnHold ?? 0)} on audit
+                  </span>
+                  {d.auditStartedAt && (
+                    <span className="text-[11px] text-slate-500 font-mono">since {d.auditStartedAt}</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onOpenLiveUpdate(d)}
+                    className="px-2 py-1 rounded bg-rose-600 hover:bg-rose-700 text-white font-semibold text-[11px] transition"
+                  >
+                    Update Status
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
       {/* PNG Download Toast Notification */}
       {pngSuccessToast && (
         <div
@@ -1020,7 +1084,8 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                   {auditActiveDisruptions.map((d, index) => {
                     const isPinned = activeRowId === d.disruptionId;
                     const durationHours = calculateDurationHours(d.disruptionStartDateTime);
-                  const durHrs = durationHours === null ? '-' : durationHours.toFixed(1);
+                    const durHrs = durationHours === null ? '-' : durationHours.toFixed(1);
+                    const hold = auditHoldState(d);
 
                     return (
                       <tr
@@ -1031,6 +1096,8 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                         className={`transition-colors duration-150 cursor-pointer group ${
                           isPinned
                             ? 'bg-amber-100 font-medium border-y-2 border-amber-400 shadow-xs'
+                            : hold.expired
+                            ? 'bg-rose-50 hover:bg-rose-100/80'
                             : 'hover:bg-purple-50/70'
                         }`}
                       >
@@ -1064,14 +1131,30 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                           {durHrs}
                         </td>
 
-                        {/* Audit Dur (Hrs) */}
-                        <td className="py-3 px-3 whitespace-nowrap font-mono text-slate-600 text-xs">
-                          0.0
+                        {/* Audit Dur (Hrs) — time elapsed on the audit hold */}
+                        <td
+                          className={`py-3 px-3 whitespace-nowrap font-mono text-xs ${
+                            hold.expired ? 'text-rose-700 font-bold' : 'text-slate-600'
+                          }`}
+                          title={d.auditStartedAt ? `On audit since ${d.auditStartedAt}` : undefined}
+                        >
+                          {hold.hoursOnHold === null ? '-' : hold.hoursOnHold.toFixed(1)}
                         </td>
 
-                        {/* Status */}
+                        {/* Status, plus the reminder once the hold has run over */}
                         <td className="py-3 px-3 whitespace-nowrap">
                           <StatusBadge status={d.currentStatus} />
+                          {hold.expired && (
+                            <div
+                              className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-600 text-white text-[10px] font-bold animate-pulse"
+                              title={`On audit for ${formatHoursMinutes(
+                                hold.hoursOnHold ?? 0
+                              )} — past the ${AUDIT_HOLD_LIMIT_HOURS}h window, take the store off audit`}
+                            >
+                              <BellRing className="w-3 h-3" />
+                              REMOVE HOLD · {formatHoursMinutes(hold.hoursOnHold ?? 0)}
+                            </div>
+                          )}
                         </td>
 
                         {/* Live Updates */}

@@ -195,3 +195,15 @@ export async function bulkUploadOutlets(outlets: OutletMaster[]): Promise<any> {
 
   return await res.json();
 }
+
+/** Owner-only. Removes an entry outright — used for wrong entries by the team. */
+export async function deleteDisruption(disruptionId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/disruptions/${encodeURIComponent(disruptionId)}`, {
+    method: 'DELETE',
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || `Failed to delete disruption (${res.status})`);
+  }
+}

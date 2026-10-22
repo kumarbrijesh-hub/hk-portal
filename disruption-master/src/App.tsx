@@ -29,6 +29,7 @@ import {
   triggerSyncNow,
   updateConfig,
   bulkUploadOutlets,
+  deleteDisruption,
 } from './services/api';
 import { DEFAULT_CONFIG, INITIAL_OUTLETS } from './data/defaultConfig';
 import { INITIAL_DISRUPTIONS } from './data/initialDisruptions';
@@ -317,6 +318,17 @@ export default function App() {
     showToast('Update Logged', `Audit trail refreshed for ${updatedDisruption.disruptionId}`, 'success');
   };
 
+  /** Owner-only removal of a wrong entry. */
+  const handleDeleteDisruption = async (target: Disruption) => {
+    try {
+      await deleteDisruption(target.disruptionId);
+      setDisruptions((prev) => prev.filter((d) => d.disruptionId !== target.disruptionId));
+      showToast('Entry Deleted', `${target.disruptionId} has been removed.`, 'success');
+    } catch (err: any) {
+      showToast('Delete Failed', err.message || 'Could not delete this entry.', 'error');
+    }
+  };
+
   // Calculate live active count using strict rule
   const activeCount = disruptions.filter((d) => isDisruptionActive(d.currentStatus)).length;
 
@@ -399,6 +411,8 @@ export default function App() {
               disruptions={disruptions}
               onOpenLiveUpdate={setSelectedDisruptionForUpdate}
               onOpenHistory={setSelectedDisruptionForHistory}
+              isOwner={isOwner}
+              onDeleteDisruption={handleDeleteDisruption}
             />
           </div>
         )}
