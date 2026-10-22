@@ -20,6 +20,7 @@ import {
 import { Disruption } from '../types';
 import { StatusBadge, BucketBadge } from './StatusBadge';
 import { readIssues, readSubIssues } from '../utils/issueTaxonomy';
+import { buildOutletWeekIndex, repeatBadgeLabel, repeatStreakFor, weekIndexOf } from '../utils/repeatOffender';
 
 interface LiveTrackerTableProps {
   disruptions: Disruption[];
@@ -48,6 +49,10 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
   const [showLODColumns, setShowLODColumns] = useState(true);
   const [copiedNotification, setCopiedNotification] = useState(false);
   const [downloadNotification, setDownloadNotification] = useState<string | null>(null);
+
+  // Which weeks each outlet broke in. Built from the full list, not the filtered
+  // one, so a filter cannot shorten a streak.
+  const outletWeekIndex = useMemo(() => buildOutletWeekIndex(disruptions), [disruptions]);
 
   // Two-step delete, so one stray click cannot drop a record.
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -509,6 +514,7 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
             ) : (
               filteredDisruptions.map((d) => {
                 const isPinned = activeRowId === d.disruptionId;
+                const repeat = repeatStreakFor(d.outletId, weekIndexOf(d.disruptionStartDateTime), outletWeekIndex);
 
                 return (
                   <tr
@@ -538,8 +544,23 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
                       </div>
                     </td>
 
-                    {/* Outlet / Store */}
+                    {/* Outlet / Store, badged when the store keeps breaking weekly */}
                     <td className="py-3 px-3">
+                      {repeat.severity !== 'none' && (
+                        <div
+                          className={`mb-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border ${
+                            repeat.severity === 'flag'
+                              ? 'bg-rose-600 text-white border-rose-700'
+                              : 'bg-amber-300 text-amber-950 border-amber-400'
+                          }`}
+                          title={`This outlet has had a disruption in ${repeat.weeks} consecutive weeks${
+                            repeat.severity === 'flag' ? ' — red flag' : ''
+                          }`}
+                        >
+                          <AlertTriangle className="w-2.5 h-2.5" />
+                          {repeatBadgeLabel(repeat)}
+                        </div>
+                      )}
                       <div className="font-mono font-semibold text-slate-800">{d.outletId}</div>
                       <div className="text-[11px] text-slate-600 truncate max-w-[150px]" title={d.storeName}>
                         {d.storeName}
@@ -786,7 +807,27 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
               <div className="grid grid-cols-2 gap-2 text-xs border-y border-slate-100 py-2">
                 <div>
                   <span className="text-slate-400 block text-[10px]">Outlet / Store</span>
-                  <span className="font-bold text-slate-800">{d.outletId}</span>
+                  {(() => {
+                    const repeat = repeatStreakFor(
+                      d.outletId,
+                      weekIndexOf(d.disruptionStartDateTime),
+                      outletWeekIndex
+                    );
+                    if (repeat.severity === 'none') return null;
+                    return (
+                      <span
+                        className={`mb-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border ${
+                          repeat.severity === 'flag'
+                            ? 'bg-rose-600 text-white border-rose-700'
+                            : 'bg-amber-300 text-amber-950 border-amber-400'
+                        }`}
+                      >
+                        <AlertTriangle className="w-2.5 h-2.5" />
+                        {repeatBadgeLabel(repeat)}
+                      </span>
+                    );
+                  })()}
+                  <span className="font-bold text-slate-800 block">{d.outletId}</span>
                   <span className="text-slate-600 block text-[11px] truncate">{d.storeName}</span>
                 </div>
                 <div>
