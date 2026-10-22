@@ -12,12 +12,20 @@ COPY . .
 # staging bucket keeps whatever a previous deploy left behind, and a re-split
 # chunk changes the name set, so a glob over an old prefix would otherwise
 # concatenate stale parts into this build's archive.
+# srcv3 is the full tree; deltav1 carries only the files changed since and is
+# unpacked over it, so a small change does not cost a full re-upload.
 RUN rm -f appsrc.part-*.gz appsrc.tar.gz srcpack.part-*.gz srcpack.tar.gz; \
     if ls srcv3.part-*.gz >/dev/null 2>&1; then \
       cat srcv3.part-*.gz > srcv3.tar.gz && rm -f srcv3.part-*.gz; \
     fi; \
     if [ -f srcv3.tar.gz ]; then \
       rm -rf src && tar -xzf srcv3.tar.gz && rm -f srcv3.tar.gz; \
+    fi; \
+    if ls deltav1.part-*.gz >/dev/null 2>&1; then \
+      cat deltav1.part-*.gz > deltav1.tar.gz && rm -f deltav1.part-*.gz; \
+    fi; \
+    if [ -f deltav1.tar.gz ]; then \
+      tar -xzf deltav1.tar.gz && rm -f deltav1.tar.gz; \
     fi
 
 RUN npm install --no-audit --no-fund
