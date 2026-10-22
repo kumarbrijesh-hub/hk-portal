@@ -8,14 +8,16 @@ COPY . .
 # byte-exactly. When the overlay parts are present they are reassembled and
 # replace the staged copies with the exact repository bytes. The local CLI path
 # never ships them and skips this step.
-# `rm` first clears any earlier generation of overlay parts, so a stale chunk
-# left in the bucket can never be concatenated into this build's archive.
-RUN rm -f appsrc.part-*.gz appsrc.tar.gz; \
-    if ls srcpack.part-*.gz >/dev/null 2>&1; then \
-      cat srcpack.part-*.gz > srcpack.tar.gz && rm -f srcpack.part-*.gz; \
+# Each generation uses its own prefix and deletes every earlier one first. The
+# staging bucket keeps whatever a previous deploy left behind, and a re-split
+# chunk changes the name set, so a glob over an old prefix would otherwise
+# concatenate stale parts into this build's archive.
+RUN rm -f appsrc.part-*.gz appsrc.tar.gz srcpack.part-*.gz srcpack.tar.gz; \
+    if ls srcv3.part-*.gz >/dev/null 2>&1; then \
+      cat srcv3.part-*.gz > srcv3.tar.gz && rm -f srcv3.part-*.gz; \
     fi; \
-    if [ -f srcpack.tar.gz ]; then \
-      rm -rf src && tar -xzf srcpack.tar.gz && rm -f srcpack.tar.gz; \
+    if [ -f srcv3.tar.gz ]; then \
+      rm -rf src && tar -xzf srcv3.tar.gz && rm -f srcv3.tar.gz; \
     fi
 
 RUN npm install --no-audit --no-fund
