@@ -18,33 +18,50 @@ import {
   X,
   Lock,
 } from 'lucide-react';
-import { AppConfig, OutletMaster, SyncStatus } from '../types';
+import {
+  AppConfig,
+  OutletMaster,
+  SheetSourceKey,
+  SheetSources,
+  SyncStatus,
+  SyncStatuses,
+} from '../types';
+import { SheetSourcesPanel } from './SheetSourcesPanel';
 
 interface ConfigViewProps {
   config: AppConfig;
   syncStatus: SyncStatus;
+  /** One status per feed — store master, disruption timings, tickets. */
+  syncStatuses: SyncStatuses;
   outlets: OutletMaster[];
   isSyncing: boolean;
+  /** Which feed is mid-sync, so only that card shows a spinner. */
+  syncingSource: SheetSourceKey | null;
   /** Masters are read-only for everyone but the owner account. */
   isOwner: boolean;
   onSaveConfig: (updated: AppConfig) => Promise<void>;
   onSyncNow: () => void;
+  onSyncSource: (key: SheetSourceKey) => Promise<void>;
+  onUploadSourceCsv: (key: SheetSourceKey, csvText: string) => Promise<void>;
   onBulkUploadOutlets: (outlets: OutletMaster[]) => Promise<void>;
 }
 
 export const ConfigView: React.FC<ConfigViewProps> = ({
   config,
   syncStatus,
+  syncStatuses,
   outlets,
   isSyncing,
+  syncingSource,
   isOwner,
   onSaveConfig,
   onSyncNow,
+  onSyncSource,
+  onUploadSourceCsv,
   onBulkUploadOutlets,
 }) => {
   // Local config form state
-  const [googleSheetUrl, setGoogleSheetUrl] = useState(config.googleSheetUrl || '');
-  const [sheetTabName, setSheetTabName] = useState(config.sheetTabName || 'Master_Data');
+  const [sources, setSources] = useState<SheetSources>({ ...config.sources });
   const [syncIntervalMinutes, setSyncIntervalMinutes] = useState(config.syncIntervalMinutes || 5);
   const [columnMapping, setColumnMapping] = useState({ ...config.columnMapping });
   const [issueMaster, setIssueMaster] = useState<Record<string, string[]>>({ ...config.issueMaster });
@@ -71,8 +88,10 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
     try {
       const updatedConfig: AppConfig = {
         ...config,
-        googleSheetUrl: googleSheetUrl.trim(),
-        sheetTabName: sheetTabName.trim(),
+        sources,
+        // The legacy pair still mirrors the store-master feed for older clients.
+        googleSheetUrl: sources.outletMaster.url.trim(),
+        sheetTabName: sources.outletMaster.tabName.trim(),
         syncIntervalMinutes: Number(syncIntervalMinutes) || 5,
         columnMapping,
         issueMaster,
@@ -230,10 +249,10 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
         <div>
           <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
             <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
-            Google Sheet Master Data & Configuration
+            Sheet Feeds, Master Data & Configuration
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Configure Google Sheets sync parameters, column header mappings and the issue taxonomy.
+            Three independent sheet feeds, column header mappings and the issue taxonomy.
           </p>
           {!isOwner && (
             <p className="mt-2 inline-flex items-center gap-1.5 px-2 py-1 rounded bg-amber-50 border border-amber-200 text-[11px] font-semibold text-amber-800">
@@ -251,7 +270,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow transition flex items-center gap-2 disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span>{isSyncing ? 'SYNCING...' : 'SYNC NOW'}</span>
+            <span>{isSyncing ? 'SYNCING...' : 'SYNC ALL FEEDS'}</span>
           </button>
         </div>
       </div>
@@ -259,7 +278,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
       {/* Sync Diagnostics & Status Card */}
       <div className="bg-slate-900 text-white rounded-xl shadow-xs border border-slate-800 p-5 grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
         <div>
-          <span className="text-slate-400 block text-[11px]">Sync Status</span>
+          <span className="text-slate-400 block text-[11px]">Store Master Sync</span>
           <div className="flex items-center gap-2 mt-1">
             {syncStatus.status === 'Success' ? (
               <span className="inline-flex items-center gap-1 text-emerald-400 font-bold">
@@ -307,53 +326,22 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
 
       {/* Settings Form */}
       <form onSubmit={handleSave} className="space-y-6">
-        {/* Section 1: Google Sheet Source */}
-        <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4">
-          <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <Database className="w-4 h-4 text-slate-600" />
-              1. Google Sheet Connection Details
-            </h3>
-            <span className="text-xs text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded border border-amber-200 font-medium">
-              Configurable Placeholder
-            </span>
-          </div>
+        {/* Section 1: the three sheet feeds */}
+        <SheetSourcesPanel
+          sources={sources}
+          statuses={syncStatuses}
+          isOwner={isOwner}
+          onChange={setSources}
+          onSyncSource={onSyncSource}
+          onUploadCsv={onUploadSourceCsv}
+          syncingSource={syncingSource}
+        />
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-            <div className="md:col-span-2">
-              <label className="block font-semibold text-slate-700 mb-1">
-                Google Sheet URL
-              </label>
-              <input
-                type="text"
-                value={googleSheetUrl}
-                onChange={(e) => setGoogleSheetUrl(e.target.value)}
-                placeholder="https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit"
-                className="w-full p-2.5 rounded-lg border border-slate-300 font-mono text-xs focus:ring-2 focus:ring-emerald-500"
-              />
-              <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
-                <Info className="w-3.5 h-3.5" />
-                Provide the link to the master Google Sheet. The sheet must be shared with "Anyone with link can view".
-              </p>
-            </div>
-
+        {/* Auto-sync cadence, shared by all three feeds */}
+        <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs items-end">
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">
-                Tab / Sheet Name
-              </label>
-              <input
-                type="text"
-                value={sheetTabName}
-                onChange={(e) => setSheetTabName(e.target.value)}
-                placeholder="Master_Data"
-                className="w-full p-2.5 rounded-lg border border-slate-300 text-xs focus:ring-2 focus:ring-emerald-500"
-              />
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">
-                Auto-Sync Interval (Minutes)
-              </label>
+              <label className="block font-semibold text-slate-700 mb-1">Auto-Sync Interval</label>
               <select
                 value={syncIntervalMinutes}
                 onChange={(e) => setSyncIntervalMinutes(Number(e.target.value))}
@@ -365,6 +353,12 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
                 <option value={30}>Every 30 minutes</option>
               </select>
             </div>
+            <p className="md:col-span-2 text-[11px] text-slate-500 flex items-start gap-1.5">
+              <Info className="w-3.5 h-3.5 shrink-0 mt-px" />
+              Every enabled feed is pulled on this cadence. Each sheet must be shared as
+              "Anyone with the link can view", and a ticket is frozen once its sheet reports
+              it closed — later syncs leave closed tickets untouched.
+            </p>
           </div>
         </div>
 

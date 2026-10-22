@@ -1,4 +1,4 @@
-import { AppConfig, OutletMaster } from '../types';
+import { AppConfig, OutletMaster, SheetSources } from '../types';
 
 export const DEFAULT_CC_POCS: string[] = [
   'Palak',
@@ -76,6 +76,16 @@ export const DEFAULT_COLUMN_MAPPING = {
   lodL3Contact: 'LOD - 2 L3 Contact No.',
 };
 
+/**
+ * The three feeds start empty and switched on: an empty URL simply means the
+ * feed has nothing to pull yet, so enabling it later is a one-field change.
+ */
+export const DEFAULT_SHEET_SOURCES: SheetSources = {
+  outletMaster: { url: '', tabName: 'Live_data', enabled: true },
+  disruptionTimings: { url: '', tabName: 'Disruption_Timings', enabled: true },
+  tickets: { url: '', tabName: 'Tickets', enabled: true },
+};
+
 export const DEFAULT_CONFIG: AppConfig = {
   googleSheetUrl: '',
   sheetTabName: 'Live_data',
@@ -84,6 +94,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   ccPocOptions: DEFAULT_CC_POCS,
   issueMaster: DEFAULT_ISSUE_MASTER,
   autoSyncEnabled: true,
+  sources: DEFAULT_SHEET_SOURCES,
 };
 
 export const INITIAL_OUTLETS: OutletMaster[] = [

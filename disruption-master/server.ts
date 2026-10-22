@@ -5,11 +5,29 @@ import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
 
 // Types and Defaults
-import { DEFAULT_CONFIG, INITIAL_OUTLETS, DEFAULT_CC_POCS, DEFAULT_ISSUE_MASTER } from './src/data/defaultConfig';
+import {
+  DEFAULT_CONFIG,
+  DEFAULT_SHEET_SOURCES,
+  INITIAL_OUTLETS,
+  DEFAULT_CC_POCS,
+  DEFAULT_ISSUE_MASTER,
+} from './src/data/defaultConfig';
 import { INITIAL_DISRUPTIONS } from './src/data/initialDisruptions';
-import { AppConfig, Disruption, DisruptionUpdateHistory, OutletMaster, SyncStatus } from './src/types';
-import { formatToIST, getCurrentISTDate } from './src/utils/dateUtils';
+import {
+  AppConfig,
+  Disruption,
+  DisruptionUpdateHistory,
+  OutletMaster,
+  SheetSourceConfig,
+  SheetSourceKey,
+  SHEET_SOURCE_KEYS,
+  SHEET_SOURCE_LABELS,
+  SyncStatus,
+  SyncStatuses,
+} from './src/types';
+import { formatToIST, getCurrentISTDate, hoursBetween } from './src/utils/dateUtils';
 import { deriveIssues, readIssues, readSubIssues } from './src/utils/issueTaxonomy';
+import { formatHoursMinutes } from './src/utils/auditHold';
 import { isAuditStatus } from './src/types';
 
 /**
@@ -171,7 +189,50 @@ interface DatabaseStore {
   outlets: OutletMaster[];
   disruptions: Disruption[];
   config: AppConfig;
-  syncStatus: SyncStatus;
+  /** One status per feed. A failure on one feed never masks the other two. */
+  syncStatuses: SyncStatuses;
+}
+
+/** A feed that has never run. */
+function idleSyncStatus(): SyncStatus {
+  return {
+    lastSyncTime: null,
+    lastAttemptedTime: null,
+    status: 'Idle',
+    recordsCount: 0,
+    errorDetails: null,
+    source: 'Not configured yet',
+  };
+}
+
+/**
+ * Fills in anything a stored config predates, so a file written before the
+ * feeds were split still loads. The legacy single-sheet fields become the
+ * store-master feed.
+ */
+function migrateConfig(stored: Partial<AppConfig>): AppConfig {
+  const merged: AppConfig = {
+    ...DEFAULT_CONFIG,
+    ...stored,
+    columnMapping: { ...DEFAULT_CONFIG.columnMapping, ...(stored.columnMapping || {}) },
+    sources: { ...DEFAULT_SHEET_SOURCES, ...(stored.sources || {}) },
+  };
+
+  for (const key of SHEET_SOURCE_KEYS) {
+    merged.sources[key] = { ...DEFAULT_SHEET_SOURCES[key], ...(merged.sources[key] || {}) };
+  }
+
+  // Pre-split configs only ever had the store-master sheet.
+  if (!merged.sources.outletMaster.url && stored.googleSheetUrl) {
+    merged.sources.outletMaster.url = stored.googleSheetUrl;
+    merged.sources.outletMaster.tabName = stored.sheetTabName || DEFAULT_SHEET_SOURCES.outletMaster.tabName;
+  }
+
+  // Keep the legacy pair pointing at the store master so older clients agree.
+  merged.googleSheetUrl = merged.sources.outletMaster.url;
+  merged.sheetTabName = merged.sources.outletMaster.tabName;
+
+  return merged;
 }
 
 // Ensure data folder exists
@@ -184,14 +245,18 @@ let db: DatabaseStore = {
   users: [],
   outlets: [...INITIAL_OUTLETS],
   disruptions: [...INITIAL_DISRUPTIONS],
-  config: { ...DEFAULT_CONFIG },
-  syncStatus: {
-    lastSyncTime: '08/09/2026 11:30:00',
-    lastAttemptedTime: '08/09/2026 11:30:00',
-    status: 'Success',
-    recordsCount: INITIAL_OUTLETS.length,
-    errorDetails: null,
-    source: 'Seed Master Dataset',
+  config: migrateConfig(DEFAULT_CONFIG),
+  syncStatuses: {
+    outletMaster: {
+      lastSyncTime: '08/09/2026 11:30:00',
+      lastAttemptedTime: '08/09/2026 11:30:00',
+      status: 'Success',
+      recordsCount: INITIAL_OUTLETS.length,
+      errorDetails: null,
+      source: 'Seed Master Dataset',
+    },
+    disruptionTimings: idleSyncStatus(),
+    tickets: idleSyncStatus(),
   },
 };
 
@@ -204,12 +269,17 @@ try {
     if (parsed.outlets) db.outlets = parsed.outlets;
     if (parsed.disruptions) db.disruptions = parsed.disruptions;
     if (parsed.config) {
-      db.config = { ...DEFAULT_CONFIG, ...parsed.config };
       if (!parsed.config.sheetTabName || parsed.config.sheetTabName === 'Master_Data') {
-        db.config.sheetTabName = 'Live_data';
+        parsed.config.sheetTabName = 'Live_data';
       }
+      db.config = migrateConfig(parsed.config);
     }
-    if (parsed.syncStatus) db.syncStatus = parsed.syncStatus;
+    if (parsed.syncStatuses) {
+      db.syncStatuses = { ...db.syncStatuses, ...parsed.syncStatuses };
+    } else if (parsed.syncStatus) {
+      // Before the split there was one status, and it described the store master.
+      db.syncStatuses.outletMaster = parsed.syncStatus;
+    }
   } else {
     fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf-8');
   }
@@ -333,31 +403,13 @@ function getGoogleSheetCandidateCsvUrls(url: string, tabName: string): string[] 
   return candidates;
 }
 
-// Sync Service
-async function syncGoogleSheetData(): Promise<{ success: boolean; count: number; error?: string }> {
-  const { formattedIST } = getCurrentISTDate();
-  db.syncStatus.lastAttemptedTime = formattedIST;
-  db.syncStatus.status = 'Syncing';
-  db.syncStatus.errorDetails = null;
-
-  const url = db.config.googleSheetUrl;
-  const tab = db.config.sheetTabName;
-  const mapping = db.config.columnMapping;
-
-  if (!url || !url.trim()) {
-    // If no URL provided yet, preserve existing valid dataset and set status
-    db.syncStatus.status = 'Success';
-    db.syncStatus.recordsCount = db.outlets.length;
-    db.syncStatus.lastSyncTime = formattedIST;
-    db.syncStatus.errorDetails = 'Running on active Master Data cache. Add Google Sheet URL in Settings for live cloud sync.';
-    db.syncStatus.source = 'Internal Cached Master Dataset';
-    saveDb();
-    return { success: true, count: db.outlets.length };
-  }
-
-  const candidateUrls = getGoogleSheetCandidateCsvUrls(url, tab);
-  let csvText = '';
-  let lastFetchError = '';
+/**
+ * Pulls a sheet down as CSV, trying each candidate export URL in turn.
+ * Returns the text, or an error describing why none of them worked.
+ */
+async function fetchSheetCsv(url: string, tabName: string): Promise<{ csvText: string; error: string }> {
+  const candidateUrls = getGoogleSheetCandidateCsvUrls(url, tabName);
+  let lastFetchError = 'No candidate URL could be derived from the sheet link.';
 
   for (const candidateUrl of candidateUrls) {
     try {
@@ -374,12 +426,16 @@ async function syncGoogleSheetData(): Promise<{ success: boolean; count: number;
 
       if (response.ok) {
         const text = await response.text();
-        if (text && !text.includes('<!DOCTYPE html>') && !text.includes('<html') && !text.includes('google.com/ServiceLogin')) {
-          csvText = text;
-          break;
-        } else {
-          lastFetchError = 'Google Sheet returned a login/HTML page. Permissions required.';
+        // A login page comes back with HTTP 200, so sniff the body too.
+        if (
+          text &&
+          !text.includes('<!DOCTYPE html>') &&
+          !text.includes('<html') &&
+          !text.includes('google.com/ServiceLogin')
+        ) {
+          return { csvText: text, error: '' };
         }
+        lastFetchError = 'Google Sheet returned a login/HTML page. Permissions required.';
       } else {
         lastFetchError = `HTTP ${response.status}: ${response.statusText}`;
       }
@@ -388,41 +444,96 @@ async function syncGoogleSheetData(): Promise<{ success: boolean; count: number;
     }
   }
 
+  return { csvText: '', error: lastFetchError };
+}
+
+/**
+ * Builds a column locator over a header row. Matching is lenient — exact first,
+ * then aliases, then a loose contains — because these sheets are hand-maintained
+ * and header wording drifts.
+ */
+function makeHeaderIndexer(headerCells: string[]): (configured: string, aliases: string[]) => number {
+  const cleanHeaders = headerCells.map((h) => h.toLowerCase().replace(/[^a-z0-9]/g, ''));
+
+  return (configured: string, aliases: string[]): number => {
+    const targetClean = (configured || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (targetClean) {
+      const exactIdx = cleanHeaders.indexOf(targetClean);
+      if (exactIdx !== -1) return exactIdx;
+    }
+    for (const alias of aliases) {
+      const aliasClean = alias.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const idx = cleanHeaders.indexOf(aliasClean);
+      if (idx !== -1) return idx;
+    }
+    for (const alias of aliases) {
+      const aliasClean = alias.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (aliasClean.length < 3) continue;
+      const idx = cleanHeaders.findIndex((h) => h.includes(aliasClean) || aliasClean.includes(h));
+      if (idx !== -1) return idx;
+    }
+    return -1;
+  };
+}
+
+/** Splits CSV text into a header row and data rows, or throws if unusable. */
+function parseCsvTable(csvText: string): { headers: string[]; rows: string[][] } {
+  const lines = csvText.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length < 2) {
+    throw new Error('Sheet appears empty or has no data rows.');
+  }
+  return {
+    headers: parseCsvLine(lines[0]),
+    rows: lines.slice(1).map(parseCsvLine),
+  };
+}
+
+/** A ticket state string that means the ticket is done. */
+function isClosedTicketState(state: string): boolean {
+  const s = state.trim().toLowerCase();
+  if (!s) return false;
+  return ['closed', 'resolved', 'completed', 'complete', 'done', 'cancelled', 'canceled'].some((w) =>
+    s.includes(w)
+  );
+}
+
+// --- Feed 1: store master -------------------------------------------------
+// Store name, city, mode, vendor, AMC and POC details against each outlet ID.
+async function syncOutletMaster(): Promise<{ success: boolean; count: number; error?: string }> {
+  const { formattedIST } = getCurrentISTDate();
+  const status = db.syncStatuses.outletMaster;
+  status.lastAttemptedTime = formattedIST;
+  status.status = 'Syncing';
+  status.errorDetails = null;
+
+  const source = db.config.sources.outletMaster;
+  const url = source.url;
+  const tab = source.tabName;
+  const mapping = db.config.columnMapping;
+
+  if (!url || !url.trim()) {
+    // Nothing to pull from yet — keep serving whatever master is already cached.
+    status.status = 'Success';
+    status.recordsCount = db.outlets.length;
+    status.lastSyncTime = formattedIST;
+    status.errorDetails =
+      'Running on the cached store master. Add the Store Master sheet link in Settings for live sync.';
+    status.source = 'Internal Cached Master Dataset';
+    saveDb();
+    return { success: true, count: db.outlets.length };
+  }
+
+  const { csvText, error: fetchError } = await fetchSheetCsv(url, tab);
+
   try {
     if (!csvText) {
       throw new Error(
-        `Google Sheet sync failed (${lastFetchError}). Ensure sheet link is set to "Anyone with the link can view" (Viewer access), or use "Quick Sync / Paste Sheet Data" to paste all rows in 1 click.`
+        `Store Master sync failed (${fetchError}). Set the sheet link to "Anyone with the link can view", or paste the rows in with Upload.`
       );
     }
 
-    const lines = csvText.split(/\r?\n/).filter((l) => l.trim().length > 0);
-    if (lines.length < 2) {
-      throw new Error('Google Sheet appears empty or has no data rows.');
-    }
-
-    const rawHeaders = parseCsvLine(lines[0]);
-    const cleanHeaders = rawHeaders.map((h) => h.toLowerCase().replace(/[^a-z0-9]/g, ''));
-
-    // Intelligent column header matching with priority aliases
-    const findIndex = (targetName: string, fallbackAliases: string[]): number => {
-      const targetClean = (targetName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (targetClean) {
-        const exactIdx = cleanHeaders.indexOf(targetClean);
-        if (exactIdx !== -1) return exactIdx;
-      }
-      for (const alias of fallbackAliases) {
-        const aliasClean = alias.toLowerCase().replace(/[^a-z0-9]/g, '');
-        const idx = cleanHeaders.indexOf(aliasClean);
-        if (idx !== -1) return idx;
-      }
-      for (const alias of fallbackAliases) {
-        const aliasClean = alias.toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (aliasClean.length < 3) continue;
-        const idx = cleanHeaders.findIndex((h) => h.includes(aliasClean) || aliasClean.includes(h));
-        if (idx !== -1) return idx;
-      }
-      return -1;
-    };
+    const { headers, rows } = parseCsvTable(csvText);
+    const findIndex = makeHeaderIndexer(headers);
 
     const idxOutlet = findIndex(mapping.outletId, [
       'outlet_id',
@@ -547,14 +658,13 @@ async function syncGoogleSheetData(): Promise<{ success: boolean; count: number;
     const idxMstRacContact = findIndex('mst/rac contact no. (auto)', ['mst/rac contact no. (auto)', 'mst/rac contact no', 'mst rac contact']);
 
     if (idxOutlet === -1) {
-      throw new Error(`Outlet ID column (e.g. "outlet_id" / "${mapping.outletId}") not found in Google Sheet headers.`);
+      throw new Error(`Outlet ID column (e.g. "outlet_id" / "${mapping.outletId}") not found in the Store Master sheet headers.`);
     }
 
     const newOutlets: OutletMaster[] = [];
     const seenIds = new Set<string>();
 
-    for (let i = 1; i < lines.length; i++) {
-      const row = parseCsvLine(lines[i]);
+    for (const row of rows) {
       const rawOutletId = (row[idxOutlet] || '').trim();
       if (!rawOutletId) continue;
       const outletId = rawOutletId.toUpperCase();
@@ -612,25 +722,248 @@ async function syncGoogleSheetData(): Promise<{ success: boolean; count: number;
     }
 
     if (newOutlets.length === 0) {
-      throw new Error('No valid Outlet records found in Google Sheet data.');
+      throw new Error('No valid outlet records found in the Store Master sheet.');
     }
 
     // Update database cache
     db.outlets = newOutlets;
-    db.syncStatus.status = 'Success';
-    db.syncStatus.lastSyncTime = formattedIST;
-    db.syncStatus.recordsCount = newOutlets.length;
-    db.syncStatus.errorDetails = null;
-    db.syncStatus.source = `Google Sheet (${tab || 'Default'})`;
+    status.status = 'Success';
+    status.lastSyncTime = formattedIST;
+    status.recordsCount = newOutlets.length;
+    status.errorDetails = null;
+    status.source = `Google Sheet (${tab || 'Default'})`;
     saveDb();
 
     return { success: true, count: newOutlets.length };
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : 'Unknown synchronization error';
-    db.syncStatus.status = 'Failed';
-    db.syncStatus.errorDetails = errorMsg;
+    status.status = 'Failed';
+    status.errorDetails = errorMsg;
     saveDb();
     return { success: false, count: db.outlets.length, error: errorMsg };
+  }
+}
+
+/** Looks a disruption up by ID, ignoring case and stray spaces. */
+function findDisruptionById(rawId: string): Disruption | undefined {
+  const wanted = rawId.trim().toUpperCase();
+  if (!wanted) return undefined;
+  return db.disruptions.find((d) => d.disruptionId.trim().toUpperCase() === wanted);
+}
+
+/**
+ * Applies an end time to a record and recomputes the duration from its own
+ * start. The sheet only ever supplies the end; the start is ours.
+ */
+function applyEndTime(record: Disruption, endTime: string): boolean {
+  const cleanEnd = endTime.trim();
+  if (!cleanEnd) return false;
+  if (record.endTime === cleanEnd) return false;
+
+  record.endTime = cleanEnd;
+  const hours = hoursBetween(record.disruptionStartDateTime, cleanEnd);
+  record.duration = hours === null ? '' : formatHoursMinutes(hours);
+  return true;
+}
+
+// --- Feed 2: disruption timings -------------------------------------------
+// End time against each Disruption ID. Duration is derived, never read in.
+async function syncDisruptionTimings(): Promise<{ success: boolean; count: number; error?: string }> {
+  const { formattedIST } = getCurrentISTDate();
+  const status = db.syncStatuses.disruptionTimings;
+  const source = db.config.sources.disruptionTimings;
+
+  if (!source.url || !source.url.trim()) {
+    // Nothing to pull from. Whatever a paste-in last applied stays reported.
+    status.lastAttemptedTime = formattedIST;
+    if (!status.lastSyncTime) {
+      status.status = 'Idle';
+      status.source = 'Not configured yet';
+    }
+    status.errorDetails =
+      'No Disruption Timings sheet linked yet. Add one in Settings, or paste the rows in with Upload.';
+    saveDb();
+    return { success: true, count: 0 };
+  }
+
+  status.lastAttemptedTime = formattedIST;
+  status.status = 'Syncing';
+  status.errorDetails = null;
+
+  const { csvText, error: fetchError } = await fetchSheetCsv(source.url, source.tabName);
+
+  try {
+    if (!csvText) {
+      throw new Error(
+        `Disruption Timings sync failed (${fetchError}). Set the sheet link to "Anyone with the link can view", or paste the rows in with Upload.`
+      );
+    }
+    const count = applyDisruptionTimingRows(parseCsvTable(csvText));
+    status.status = 'Success';
+    status.lastSyncTime = formattedIST;
+    status.recordsCount = count;
+    status.errorDetails = null;
+    status.source = `Google Sheet (${source.tabName || 'Default'})`;
+    saveDb();
+    return { success: true, count };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Unknown synchronization error';
+    status.status = 'Failed';
+    status.errorDetails = errorMsg;
+    saveDb();
+    return { success: false, count: 0, error: errorMsg };
+  }
+}
+
+/** Shared by the sheet pull and the pasted-CSV upload. Returns rows applied. */
+function applyDisruptionTimingRows({ headers, rows }: { headers: string[]; rows: string[][] }): number {
+  const findIndex = makeHeaderIndexer(headers);
+  const idxId = findIndex('disruption id', ['disruption id', 'disruption_id', 'disruptionid', 'id']);
+  const idxEnd = findIndex('end time', [
+    'end time',
+    'end_time',
+    'endtime',
+    'disruption end time',
+    'resolution time',
+    'closure time',
+    'resolved at',
+  ]);
+
+  if (idxId === -1) {
+    throw new Error('Disruption ID column not found in the Disruption Timings sheet headers.');
+  }
+  if (idxEnd === -1) {
+    throw new Error('End Time column not found in the Disruption Timings sheet headers.');
+  }
+
+  let applied = 0;
+  for (const row of rows) {
+    const record = findDisruptionById(row[idxId] || '');
+    if (!record) continue;
+    if (applyEndTime(record, row[idxEnd] || '')) applied++;
+  }
+  return applied;
+}
+
+// --- Feed 3: ticket status -------------------------------------------------
+// Ticket ID, state and closure time. A closed ticket is frozen from then on.
+async function syncTickets(): Promise<{ success: boolean; count: number; error?: string }> {
+  const { formattedIST } = getCurrentISTDate();
+  const status = db.syncStatuses.tickets;
+  const source = db.config.sources.tickets;
+
+  if (!source.url || !source.url.trim()) {
+    // Nothing to pull from. Whatever a paste-in last applied stays reported.
+    status.lastAttemptedTime = formattedIST;
+    if (!status.lastSyncTime) {
+      status.status = 'Idle';
+      status.source = 'Not configured yet';
+    }
+    status.errorDetails =
+      'No Ticket Status sheet linked yet. Add one in Settings, or paste the rows in with Upload.';
+    saveDb();
+    return { success: true, count: 0 };
+  }
+
+  status.lastAttemptedTime = formattedIST;
+  status.status = 'Syncing';
+  status.errorDetails = null;
+
+  const { csvText, error: fetchError } = await fetchSheetCsv(source.url, source.tabName);
+
+  try {
+    if (!csvText) {
+      throw new Error(
+        `Ticket Status sync failed (${fetchError}). Set the sheet link to "Anyone with the link can view", or paste the rows in with Upload.`
+      );
+    }
+    const count = applyTicketRows(parseCsvTable(csvText));
+    status.status = 'Success';
+    status.lastSyncTime = formattedIST;
+    status.recordsCount = count;
+    status.errorDetails = null;
+    status.source = `Google Sheet (${source.tabName || 'Default'})`;
+    saveDb();
+    return { success: true, count };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Unknown synchronization error';
+    status.status = 'Failed';
+    status.errorDetails = errorMsg;
+    saveDb();
+    return { success: false, count: 0, error: errorMsg };
+  }
+}
+
+/** Shared by the sheet pull and the pasted-CSV upload. Returns rows applied. */
+function applyTicketRows({ headers, rows }: { headers: string[]; rows: string[][] }): number {
+  const { formattedIST } = getCurrentISTDate();
+  const findIndex = makeHeaderIndexer(headers);
+  const idxId = findIndex('disruption id', ['disruption id', 'disruption_id', 'disruptionid', 'id']);
+  const idxTicket = findIndex('ticket id', ['ticket id', 'ticket_id', 'ticketid', 'ticket', 'ticket no']);
+  const idxState = findIndex('ticket status', ['ticket status', 'status', 'ticket_state', 'state']);
+  const idxClosed = findIndex('closure time', [
+    'closure time',
+    'closed at',
+    'ticket closed at',
+    'closed time',
+    'resolution time',
+  ]);
+
+  if (idxId === -1) {
+    throw new Error('Disruption ID column not found in the Ticket Status sheet headers.');
+  }
+
+  let applied = 0;
+  for (const row of rows) {
+    const record = findDisruptionById(row[idxId] || '');
+    if (!record) continue;
+    // Once a ticket is closed its fields are frozen — later syncs leave it be.
+    if (record.ticketFrozenAt) continue;
+
+    const ticketId = idxTicket === -1 ? '' : (row[idxTicket] || '').trim();
+    const state = idxState === -1 ? '' : (row[idxState] || '').trim();
+    const closedAt = idxClosed === -1 ? '' : (row[idxClosed] || '').trim();
+    if (!ticketId && !state && !closedAt) continue;
+
+    if (ticketId) record.ticketId = ticketId;
+    if (state) record.ticketStatus = state;
+    if (closedAt) record.ticketClosedAt = closedAt;
+
+    if (isClosedTicketState(state)) {
+      // A closed ticket with no closure time in the sheet falls back to the
+      // disruption's own end time, and only then to the time it arrived here.
+      if (!record.ticketClosedAt) record.ticketClosedAt = record.endTime || formattedIST;
+      // The timings feed owns the disruption end — only backfill when it is blank.
+      if (!record.endTime) applyEndTime(record, record.ticketClosedAt);
+      record.ticketFrozenAt = formattedIST;
+    }
+
+    record.updatedAt = formattedIST;
+    applied++;
+  }
+  return applied;
+}
+
+/** Runs one feed by key. */
+function syncSource(key: SheetSourceKey): Promise<{ success: boolean; count: number; error?: string }> {
+  if (key === 'outletMaster') return syncOutletMaster();
+  if (key === 'disruptionTimings') return syncDisruptionTimings();
+  return syncTickets();
+}
+
+/**
+ * Runs every enabled feed. They are run in sequence rather than together so one
+ * slow sheet cannot stall the others behind a shared timeout, and each writes
+ * its own status either way.
+ */
+async function syncEnabledSources(): Promise<void> {
+  for (const key of SHEET_SOURCE_KEYS) {
+    if (!db.config.sources[key]?.enabled) continue;
+    try {
+      await syncSource(key);
+    } catch (e) {
+      console.error(`[Sync Service] ${SHEET_SOURCE_LABELS[key]} sync error:`, e);
+    }
   }
 }
 
@@ -641,8 +974,8 @@ function restartAutoSync() {
   const intervalMs = Math.max(1, db.config.syncIntervalMinutes || 5) * 60 * 1000;
   if (db.config.autoSyncEnabled) {
     syncTimer = setInterval(() => {
-      console.log(`[Sync Service] Running scheduled Google Sheets sync (${db.config.syncIntervalMinutes}m interval)...`);
-      syncGoogleSheetData().catch((e) => console.error('[Sync Service] Interval sync error:', e));
+      console.log(`[Sync Service] Running scheduled sheet sync (${db.config.syncIntervalMinutes}m interval)...`);
+      syncEnabledSources().catch((e) => console.error('[Sync Service] Interval sync error:', e));
     }, intervalMs);
   }
 }
@@ -804,18 +1137,87 @@ async function startServer() {
     res.json(found);
   });
 
-  // Sync Status
+  // Store-master status. Kept at its old path for clients written before the split.
   app.get('/api/sync/status', (req, res) => {
-    res.json(db.syncStatus);
+    res.json(db.syncStatuses.outletMaster);
   });
 
-  // Trigger Manual "Sync Now"
+  // All three feeds at once, so the UI can show them side by side.
+  app.get('/api/sync/statuses', (req, res) => {
+    res.json(db.syncStatuses);
+  });
+
+  // Manual "Sync Now" for the store master.
   app.post('/api/sync/now', async (req, res) => {
-    const result = await syncGoogleSheetData();
+    const result = await syncOutletMaster();
     res.json({
       ...result,
-      status: db.syncStatus,
+      status: db.syncStatuses.outletMaster,
     });
+  });
+
+  /** Reads :source off the URL, answering 400 for anything unknown. */
+  const sourceKeyFromRequest = (req: express.Request, res: express.Response): SheetSourceKey | null => {
+    const key = String(req.params.source || '') as SheetSourceKey;
+    if (!SHEET_SOURCE_KEYS.includes(key)) {
+      res.status(400).json({ error: `Unknown sheet feed "${req.params.source}".` });
+      return null;
+    }
+    return key;
+  };
+
+  // Manual sync of one named feed.
+  app.post('/api/sync/:source/now', async (req, res) => {
+    const key = sourceKeyFromRequest(req, res);
+    if (!key) return;
+    const result = await syncSource(key);
+    res.json({ ...result, source: key, status: db.syncStatuses[key] });
+  });
+
+  // Sync every enabled feed in one go.
+  app.post('/api/sync/all', async (req, res) => {
+    await syncEnabledSources();
+    res.json({ success: true, statuses: db.syncStatuses });
+  });
+
+  /**
+   * Upload path for the timing and ticket feeds: the same CSV the sheet would
+   * have served, pasted in. The store master has its own richer bulk-upload
+   * route, which replaces the whole master and is owner-only.
+   */
+  app.post('/api/sync/:source/upload', (req, res) => {
+    const key = sourceKeyFromRequest(req, res);
+    if (!key) return;
+    if (key === 'outletMaster') {
+      return res.status(400).json({ error: 'Use the Store Master upload for outlet data.' });
+    }
+
+    const csvText = String(req.body?.csvText || '');
+    if (!csvText.trim()) {
+      return res.status(400).json({ error: 'Paste the sheet rows, including the header row.' });
+    }
+
+    const { formattedIST } = getCurrentISTDate();
+    const status = db.syncStatuses[key];
+    status.lastAttemptedTime = formattedIST;
+
+    try {
+      const table = parseCsvTable(csvText);
+      const count = key === 'tickets' ? applyTicketRows(table) : applyDisruptionTimingRows(table);
+      status.status = 'Success';
+      status.lastSyncTime = formattedIST;
+      status.recordsCount = count;
+      status.errorDetails = null;
+      status.source = 'Pasted upload';
+      saveDb();
+      res.json({ success: true, count, source: key, status });
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : 'Could not read the pasted rows.';
+      status.status = 'Failed';
+      status.errorDetails = errorMsg;
+      saveDb();
+      res.status(400).json({ error: errorMsg, source: key, status });
+    }
   });
 
   // Replaces the whole outlet master, so it is an owner-only action.
@@ -857,14 +1259,15 @@ async function startServer() {
     });
 
     db.outlets = cleanOutlets;
-    db.syncStatus.status = 'Success';
-    db.syncStatus.lastSyncTime = formattedIST;
-    db.syncStatus.recordsCount = cleanOutlets.length;
-    db.syncStatus.errorDetails = null;
-    db.syncStatus.source = 'Full Sheet Sync';
+    const masterStatus = db.syncStatuses.outletMaster;
+    masterStatus.status = 'Success';
+    masterStatus.lastSyncTime = formattedIST;
+    masterStatus.recordsCount = cleanOutlets.length;
+    masterStatus.errorDetails = null;
+    masterStatus.source = 'Pasted upload';
     saveDb();
 
-    res.json({ success: true, count: cleanOutlets.length, status: db.syncStatus });
+    res.json({ success: true, count: cleanOutlets.length, status: masterStatus });
   });
 
   // Config endpoints
@@ -874,15 +1277,30 @@ async function startServer() {
 
   // Master settings, including the Issue / Sub-issue list, are the owner's alone.
   app.post('/api/config', ownerOnly, (req, res) => {
-    const updated = req.body;
-    db.config = {
+    const updated = req.body as Partial<AppConfig>;
+
+    // Merge each feed field by field so a partial save cannot blank a sheet link.
+    const mergedSources = { ...db.config.sources };
+    for (const key of SHEET_SOURCE_KEYS) {
+      const incoming = updated.sources?.[key];
+      if (!incoming) continue;
+      const current: SheetSourceConfig = mergedSources[key];
+      mergedSources[key] = {
+        url: typeof incoming.url === 'string' ? incoming.url.trim() : current.url,
+        tabName: typeof incoming.tabName === 'string' ? incoming.tabName.trim() : current.tabName,
+        enabled: typeof incoming.enabled === 'boolean' ? incoming.enabled : current.enabled,
+      };
+    }
+
+    db.config = migrateConfig({
       ...db.config,
       ...updated,
       columnMapping: {
         ...db.config.columnMapping,
         ...(updated.columnMapping || {}),
       },
-    };
+      sources: mergedSources,
+    });
     saveDb();
     restartAutoSync();
     res.json({ success: true, config: db.config });
@@ -1310,6 +1728,7 @@ async function startServer() {
       'End time (Auto)',
       'Duration (Auto)',
       'Ticket Closed At (Auto)',
+      'Ticket State (Sheet)',
       'City Lead',
       'Regional Head',
       'Week',
@@ -1357,6 +1776,7 @@ async function startServer() {
         d.endTime || '',
         d.duration || '',
         d.ticketClosedAt || '',
+        d.ticketStatus || '',
         d.cityLead || '',
         d.regionalHead || '',
         d.week || '',

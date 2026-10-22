@@ -14,6 +14,7 @@ import {
   Pin,
   FileSpreadsheet,
   Layers,
+  Lock,
   Sparkles,
   ExternalLink,
 } from 'lucide-react';
@@ -165,6 +166,7 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
       'End time (Auto)',
       'Duration (Auto)',
       'Ticket Closed At (Auto)',
+      'Ticket State (Sheet)',
       'City Lead',
       'Regional Head',
       'Week',
@@ -210,6 +212,7 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
         d.endTime || '',
         d.duration || '',
         d.ticketClosedAt || '',
+        d.ticketStatus || '',
         d.cityLead || '',
         d.regionalHead || '',
         d.week || '',
@@ -445,6 +448,8 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
               <th className="py-3 px-3 whitespace-nowrap">CC POC</th>
               <th className="py-3 px-3 whitespace-nowrap">Bucket</th>
               <th className="py-3 px-3 whitespace-nowrap">Ticket ID</th>
+              <th className="py-3 px-3 whitespace-nowrap">Ticket State</th>
+              <th className="py-3 px-3 whitespace-nowrap">Closure / Down Time</th>
               <th className="py-3 px-3 whitespace-nowrap">Current Status</th>
               <th className="py-3 px-3 whitespace-nowrap">Issue / Sub Issue</th>
               <th className="py-3 px-4 min-w-[240px]">Latest Live Update</th>
@@ -504,7 +509,7 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
           <tbody className="divide-y divide-slate-200 bg-white">
             {filteredDisruptions.length === 0 ? (
               <tr>
-                <td colSpan={showLODColumns ? 28 : 14} className="py-12 text-center text-slate-400">
+                <td colSpan={showLODColumns ? 30 : 16} className="py-12 text-center text-slate-400">
                   <div className="flex flex-col items-center justify-center gap-2">
                     <AlertTriangle className="w-6 h-6 text-slate-300" />
                     <span>No disruption records matching your criteria.</span>
@@ -598,6 +603,38 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
                     {/* Ticket ID */}
                     <td className="py-3 px-3 whitespace-nowrap font-mono font-medium text-slate-700">
                       {d.ticketId || '—'}
+                    </td>
+
+                    {/* Ticket state from the ticket sheet. Frozen once it reads closed. */}
+                    <td className="py-3 px-3 whitespace-nowrap">
+                      {d.ticketStatus ? (
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border ${
+                            d.ticketFrozenAt
+                              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                              : 'bg-slate-100 border-slate-200 text-slate-700'
+                          }`}
+                        >
+                          {d.ticketStatus}
+                          {d.ticketFrozenAt && <Lock className="w-2.5 h-2.5" />}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+
+                    {/* Closure time, with the down time it works out to from the start */}
+                    <td className="py-3 px-3 whitespace-nowrap">
+                      {d.endTime || d.ticketClosedAt ? (
+                        <div>
+                          <div className="font-mono text-[11px] text-slate-700">
+                            {d.endTime || d.ticketClosedAt}
+                          </div>
+                          <div className="text-[10px] font-semibold text-slate-500">{d.duration || '—'}</div>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] font-semibold text-amber-700">Open</span>
+                      )}
                     </td>
 
                     {/* Current Status */}

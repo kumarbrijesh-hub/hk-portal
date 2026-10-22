@@ -1,4 +1,12 @@
-import { AppConfig, Disruption, DisruptionUpdateHistory, OutletMaster, SyncStatus } from '../types';
+import {
+  AppConfig,
+  Disruption,
+  DisruptionUpdateHistory,
+  OutletMaster,
+  SheetSourceKey,
+  SyncStatus,
+  SyncStatuses,
+} from '../types';
 import { DEFAULT_CONFIG, INITIAL_OUTLETS } from '../data/defaultConfig';
 import { INITIAL_DISRUPTIONS } from '../data/initialDisruptions';
 
@@ -71,6 +79,78 @@ export async function triggerSyncNow(): Promise<{ success: boolean; count: numbe
       },
     };
   }
+}
+
+/** An idle placeholder used when a feed has nothing to report yet. */
+function idleStatus(): SyncStatus {
+  return {
+    lastSyncTime: null,
+    lastAttemptedTime: null,
+    status: 'Idle',
+    recordsCount: 0,
+    errorDetails: null,
+    source: 'Not configured yet',
+  };
+}
+
+/** All three feeds at once, for the side-by-side view in Settings. */
+export async function fetchSyncStatuses(): Promise<SyncStatuses> {
+  try {
+    const res = await fetch(`${API_BASE}/sync/statuses`);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('API fetchSyncStatuses failed:', err);
+  }
+  return { outletMaster: idleStatus(), disruptionTimings: idleStatus(), tickets: idleStatus() };
+}
+
+/** Manual sync of one feed. */
+export async function triggerSourceSync(
+  source: SheetSourceKey
+): Promise<{ success: boolean; count: number; error?: string; status: SyncStatus }> {
+  try {
+    const res = await fetch(`${API_BASE}/sync/${source}/now`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) return data;
+    throw new Error(data.error || `HTTP ${res.status}`);
+  } catch (err: any) {
+    const message = err.message || 'Sync failed';
+    return {
+      success: false,
+      count: 0,
+      error: message,
+      status: { ...idleStatus(), status: 'Failed', errorDetails: message },
+    };
+  }
+}
+
+/** Runs every enabled feed, returning all three statuses. */
+export async function syncAllSources(): Promise<{ success: boolean; statuses: SyncStatuses }> {
+  const res = await fetch(`${API_BASE}/sync/all`, { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || `Sync failed (${res.status})`);
+  }
+  return data;
+}
+
+/** Paste-in path for the timing and ticket feeds. */
+export async function uploadSourceCsv(
+  source: SheetSourceKey,
+  csvText: string
+): Promise<{ success: boolean; count: number; status: SyncStatus }> {
+  const res = await fetch(`${API_BASE}/sync/${source}/upload`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ csvText }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || `Upload failed (${res.status})`);
+  }
+  return data;
 }
 
 export async function fetchDisruptions(): Promise<Disruption[]> {

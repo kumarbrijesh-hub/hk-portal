@@ -161,6 +161,13 @@ export interface Disruption {
   endTime?: string;
   duration?: string;
   ticketClosedAt?: string;
+  /** Ticket state as reported by the ticket sheet. */
+  ticketStatus?: string;
+  /**
+   * Set once the ticket sheet reports the ticket closed. From then on the ticket
+   * fields are frozen and later syncs leave them untouched.
+   */
+  ticketFrozenAt?: string;
 
   /** First response time in minutes, entered by the operator. */
   ccFrtMins?: number;
@@ -207,6 +214,37 @@ export interface SyncStatus {
   source?: string;
 }
 
+/**
+ * The three independent sheet feeds. They are kept apart on purpose: store
+ * details, disruption start/end timings and ticket state live in different
+ * sheets maintained by different people, and one of them failing must not stop
+ * the other two.
+ */
+export type SheetSourceKey = 'outletMaster' | 'disruptionTimings' | 'tickets';
+
+export const SHEET_SOURCE_KEYS: SheetSourceKey[] = ['outletMaster', 'disruptionTimings', 'tickets'];
+
+export const SHEET_SOURCE_LABELS: Record<SheetSourceKey, string> = {
+  outletMaster: 'Store Master',
+  disruptionTimings: 'Disruption Timings',
+  tickets: 'Ticket Status',
+};
+
+export const SHEET_SOURCE_DESCRIPTIONS: Record<SheetSourceKey, string> = {
+  outletMaster: 'Store name, city, mode, vendor, AMC and POC details against each outlet ID.',
+  disruptionTimings: 'Disruption end time against each Disruption ID. Duration is calculated from the start.',
+  tickets: 'Ticket ID, status and closure time. A closed ticket is frozen and later syncs leave it alone.',
+};
+
+export interface SheetSourceConfig {
+  url: string;
+  tabName: string;
+  enabled: boolean;
+}
+
+export type SheetSources = Record<SheetSourceKey, SheetSourceConfig>;
+export type SyncStatuses = Record<SheetSourceKey, SyncStatus>;
+
 export interface ColumnMapping {
   outletId: string;
   storeName: string;
@@ -229,6 +267,10 @@ export interface ColumnMapping {
 }
 
 export interface AppConfig {
+  /**
+   * Store-master URL and tab. Retained alongside `sources.outletMaster`, which
+   * mirrors them, so configurations saved before the split keep working.
+   */
   googleSheetUrl: string;
   sheetTabName: string;
   syncIntervalMinutes: number;
@@ -236,4 +278,6 @@ export interface AppConfig {
   ccPocOptions: string[];
   issueMaster: Record<string, string[]>;
   autoSyncEnabled: boolean;
+  /** The three feeds, each with its own sheet, tab and on/off switch. */
+  sources: SheetSources;
 }

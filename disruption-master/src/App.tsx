@@ -20,14 +20,21 @@ import {
   isDisruptionActive,
   OutletMaster,
   SessionUser,
+  SheetSourceKey,
+  SHEET_SOURCE_KEYS,
+  SHEET_SOURCE_LABELS,
   SyncStatus,
+  SyncStatuses,
 } from './types';
 import {
   fetchConfig,
   fetchDisruptions,
   fetchOutlets,
   fetchSyncStatus,
-  triggerSyncNow,
+  fetchSyncStatuses,
+  syncAllSources,
+  triggerSourceSync,
+  uploadSourceCsv,
   updateConfig,
   bulkUploadOutlets,
   deleteDisruption,
@@ -174,6 +181,31 @@ export default function App() {
     recordsCount: INITIAL_OUTLETS.length,
     errorDetails: null,
   });
+  // The three feeds report independently; the header keeps showing the master.
+  const [syncStatuses, setSyncStatuses] = useState<SyncStatuses>({
+    outletMaster: {
+      lastSyncTime: '08/09/2026 11:30:00',
+      lastAttemptedTime: '08/09/2026 11:30:00',
+      status: 'Success',
+      recordsCount: INITIAL_OUTLETS.length,
+      errorDetails: null,
+    },
+    disruptionTimings: {
+      lastSyncTime: null,
+      lastAttemptedTime: null,
+      status: 'Idle',
+      recordsCount: 0,
+      errorDetails: null,
+    },
+    tickets: {
+      lastSyncTime: null,
+      lastAttemptedTime: null,
+      status: 'Idle',
+      recordsCount: 0,
+      errorDetails: null,
+    },
+  });
+  const [syncingSource, setSyncingSource] = useState<SheetSourceKey | null>(null);
 
   // The CC POC is whoever is signed in — never typed in by hand.
   const sessionUser: SessionUser | null = auth?.user ?? null;
@@ -211,12 +243,14 @@ export default function App() {
   // Load initial data
   const loadInitialData = useCallback(async () => {
     try {
-      const [fetchedDisruptions, fetchedOutlets, fetchedConfig, fetchedStatus] = await Promise.all([
-        fetchDisruptions(),
-        fetchOutlets(),
-        fetchConfig(),
-        fetchSyncStatus(),
-      ]);
+      const [fetchedDisruptions, fetchedOutlets, fetchedConfig, fetchedStatus, fetchedStatuses] =
+        await Promise.all([
+          fetchDisruptions(),
+          fetchOutlets(),
+          fetchConfig(),
+          fetchSyncStatus(),
+          fetchSyncStatuses(),
+        ]);
 
       if (fetchedDisruptions && fetchedDisruptions.length > 0) {
         setDisruptions(fetchedDisruptions);
@@ -229,6 +263,9 @@ export default function App() {
       }
       if (fetchedStatus) {
         setSyncStatus(fetchedStatus);
+      }
+      if (fetchedStatuses) {
+        setSyncStatuses(fetchedStatuses);
       }
     } catch (err) {
       console.warn('Error loading initial data:', err);
@@ -246,12 +283,14 @@ export default function App() {
     if (!auth?.authenticated) return;
     const pollInterval = setInterval(async () => {
       try {
-        const [dList, sStatus] = await Promise.all([
+        const [dList, sStatus, sStatuses] = await Promise.all([
           fetchDisruptions(),
           fetchSyncStatus(),
+          fetchSyncStatuses(),
         ]);
         if (dList) setDisruptions(dList);
         if (sStatus) setSyncStatus(sStatus);
+        if (sStatuses) setSyncStatuses(sStatuses);
       } catch {
         // silent polling catch
       }
@@ -260,27 +299,69 @@ export default function App() {
     return () => clearInterval(pollInterval);
   }, [auth]);
 
-  // Manual Sync Now handler
+  /**
+   * The top-level Sync Now runs every enabled feed. Individual feeds also have
+   * their own button in Settings for when only one sheet has moved.
+   */
   const handleSyncNow = async () => {
     setIsSyncing(true);
-    showToast('Sync in Progress', 'Connecting to Google Sheets master source...', 'info');
+    showToast('Sync in Progress', 'Pulling every enabled sheet feed...', 'info');
     try {
-      const res = await triggerSyncNow();
-      if (res.status) {
-        setSyncStatus(res.status);
+      const res = await syncAllSources();
+      if (res.statuses) {
+        setSyncStatuses(res.statuses);
+        setSyncStatus(res.statuses.outletMaster);
       }
-      if (res.success) {
-        const updatedOutlets = await fetchOutlets();
-        setOutlets(updatedOutlets);
-        showToast('Sync Successful', `Fetched ${res.count} master outlet records.`, 'success');
+      const [updatedOutlets, updatedDisruptions] = await Promise.all([fetchOutlets(), fetchDisruptions()]);
+      setOutlets(updatedOutlets);
+      if (updatedDisruptions) setDisruptions(updatedDisruptions);
+
+      const failed = SHEET_SOURCE_KEYS.filter((k) => res.statuses?.[k]?.status === 'Failed');
+      if (failed.length > 0) {
+        showToast(
+          'Some Feeds Failed',
+          `${failed.map((k) => SHEET_SOURCE_LABELS[k]).join(', ')} — check the sheet link and sharing.`,
+          'error'
+        );
       } else {
-        showToast('Sync Failed', res.error || 'Check Google Sheet URL and permissions.', 'error');
+        showToast('Sync Complete', `${updatedOutlets.length} outlets cached.`, 'success');
       }
     } catch (err: any) {
       showToast('Sync Error', err.message || 'Network error while syncing.', 'error');
     } finally {
       setIsSyncing(false);
     }
+  };
+
+  /** Manual sync of one feed. Each reports on its own, success or failure. */
+  const handleSyncSource = async (key: SheetSourceKey) => {
+    setSyncingSource(key);
+    try {
+      const res = await triggerSourceSync(key);
+      if (res.status) {
+        setSyncStatuses((prev) => ({ ...prev, [key]: res.status }));
+        if (key === 'outletMaster') setSyncStatus(res.status);
+      }
+      if (res.success) {
+        if (key === 'outletMaster') setOutlets(await fetchOutlets());
+        else setDisruptions(await fetchDisruptions());
+        showToast(`${SHEET_SOURCE_LABELS[key]} Synced`, `${res.count} rows applied.`, 'success');
+      } else {
+        showToast(`${SHEET_SOURCE_LABELS[key]} Sync Failed`, res.error || 'Check the sheet link and sharing.', 'error');
+      }
+    } finally {
+      setSyncingSource(null);
+    }
+  };
+
+  /** Paste path for the timing and ticket feeds. */
+  const handleUploadSourceCsv = async (key: SheetSourceKey, csvText: string) => {
+    const res = await uploadSourceCsv(key, csvText);
+    if (res.status) {
+      setSyncStatuses((prev) => ({ ...prev, [key]: res.status }));
+    }
+    setDisruptions(await fetchDisruptions());
+    showToast(`${SHEET_SOURCE_LABELS[key]} Updated`, `${res.count} rows applied.`, 'success');
   };
 
   // Config save handler
@@ -296,7 +377,10 @@ export default function App() {
       const res = await bulkUploadOutlets(newOutlets);
       if (res.success) {
         setOutlets(newOutlets);
-        if (res.status) setSyncStatus(res.status);
+        if (res.status) {
+          setSyncStatus(res.status);
+          setSyncStatuses((prev) => ({ ...prev, outletMaster: res.status }));
+        }
         showToast('Master Outlets Updated', `${newOutlets.length} outlets loaded to cache.`, 'success');
       }
     } catch (err: any) {
@@ -436,11 +520,15 @@ export default function App() {
           <ConfigView
             config={config}
             syncStatus={syncStatus}
+            syncStatuses={syncStatuses}
             outlets={outlets}
             isSyncing={isSyncing}
+            syncingSource={syncingSource}
             isOwner={isOwner}
             onSaveConfig={handleSaveConfig}
             onSyncNow={handleSyncNow}
+            onSyncSource={handleSyncSource}
+            onUploadSourceCsv={handleUploadSourceCsv}
             onBulkUploadOutlets={handleBulkUploadOutlets}
           />
         )}
