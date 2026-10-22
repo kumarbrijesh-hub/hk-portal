@@ -9,6 +9,7 @@ import { LiveTrackerForm } from './components/LiveTrackerForm';
 import { LiveTrackerTable } from './components/LiveTrackerTable';
 import { ActiveDisruptionsView } from './components/ActiveDisruptionsView';
 import { ConfigView } from './components/ConfigView';
+import { PerformanceSummaryView } from './components/PerformanceSummaryView';
 import { LiveUpdateModal } from './components/LiveUpdateModal';
 import { UpdateHistoryModal } from './components/UpdateHistoryModal';
 import { SyncSheetModal } from './components/SyncSheetModal';
@@ -427,7 +428,10 @@ export default function App() {
           />
         )}
 
-        {/* TAB 3: GOOGLE SHEET & CONFIG */}
+        {/* TAB 3: DATE-WISE PERFORMANCE SUMMARY */}
+        {activeTab === 'summary' && <PerformanceSummaryView disruptions={disruptions} />}
+
+        {/* TAB 4: GOOGLE SHEET & CONFIG */}
         {activeTab === 'config' && (
           <ConfigView
             config={config}
