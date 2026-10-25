@@ -1,6 +1,12 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { X, Send, Activity, AlertCircle } from 'lucide-react';
-import { CurrentStatus, Disruption, RESOLVED_STATUSES_REQUIRING_ISSUE } from '../types';
+import {
+  CurrentStatus,
+  Disruption,
+  RESOLVED_STATUSES_REQUIRING_ISSUE,
+  STATUS_REQUIRING_RAC_FRT,
+} from '../types';
+import { hoursBetween } from '../utils/dateUtils';
 import { StatusBadge } from './StatusBadge';
 import { SubIssuePicker } from './SubIssuePicker';
 import { readSubIssues } from '../utils/issueTaxonomy';
@@ -34,6 +40,33 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
 
   const isIssueRequired = RESOLVED_STATUSES_REQUIRING_ISSUE.includes(targetStatus);
 
+  /**
+   * Asked only on the update that first marks the technician as arrived. Once
+   * it is on the record it is never asked again, and it is not asked at all if
+   * the record already came through RAC Visited.
+   */
+  const needsRacFrt =
+    targetStatus === STATUS_REQUIRING_RAC_FRT &&
+    disruption.currentStatus !== STATUS_REQUIRING_RAC_FRT &&
+    disruption.mstFrtMins === undefined;
+
+  /**
+   * Either type the minutes, or pick the arrival time and let it work them out
+   * from the disruption's own start - whichever the person has to hand.
+   */
+  const [racFrtMode, setRacFrtMode] = useState<'minutes' | 'time'>('minutes');
+  const [racFrtMinutes, setRacFrtMinutes] = useState('');
+  const [racArrivalAt, setRacArrivalAt] = useState('');
+
+  const racFrtFromArrival = useMemo(() => {
+    if (!racArrivalAt) return null;
+    // datetime-local gives YYYY-MM-DDTHH:MM, which parseISTTimestamp reads.
+    const hrs = hoursBetween(disruption.disruptionStartDateTime, racArrivalAt.replace('T', ' '));
+    return hrs === null ? null : Math.max(0, Math.round(hrs * 60));
+  }, [racArrivalAt, disruption.disruptionStartDateTime]);
+
+  const racFrtValue = racFrtMode === 'minutes' ? racFrtMinutes.trim() : racFrtFromArrival;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -45,6 +78,15 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
 
     if (isIssueRequired && selectedSubIssues.length === 0) {
       setError(`Select at least one sub-issue for status "${targetStatus}".`);
+      return;
+    }
+
+    if (needsRacFrt && (racFrtValue === null || racFrtValue === '' || Number(racFrtValue) < 0)) {
+      setError(
+        racFrtMode === 'minutes'
+          ? 'Enter how many minutes the RAC technician took to reach site.'
+          : 'Pick the time the RAC technician reached site.'
+      );
       return;
     }
 
@@ -60,6 +102,7 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
           updatedBy: currentUser || disruption.ccPoc || 'Operator',
           newStatus: targetStatus,
           subIssues: selectedSubIssues,
+          ...(needsRacFrt ? { racFrtMins: Number(racFrtValue) } : {}),
         }),
       });
 
@@ -151,6 +194,77 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
               />
               <p className="text-[11px] text-slate-600">
                 Pick every sub-issue that applied. The issue category is filled in from the master automatically.
+              </p>
+            </div>
+          )}
+
+          {/* Only appears on the update that first marks the technician arrived,
+              because that is the one moment anyone knows the answer. */}
+          {needsRacFrt && (
+            <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-bold text-amber-900">
+                  How long did the RAC technician take to reach site?{' '}
+                  <span className="text-rose-600">*</span>
+                </p>
+                <div className="flex items-center gap-1 text-[10px]">
+                  <button
+                    type="button"
+                    onClick={() => setRacFrtMode('minutes')}
+                    className={`px-2 py-0.5 rounded font-semibold ${
+                      racFrtMode === 'minutes'
+                        ? 'bg-amber-900 text-white'
+                        : 'bg-white text-amber-900 border border-amber-300'
+                    }`}
+                  >
+                    Minutes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRacFrtMode('time')}
+                    className={`px-2 py-0.5 rounded font-semibold ${
+                      racFrtMode === 'time'
+                        ? 'bg-amber-900 text-white'
+                        : 'bg-white text-amber-900 border border-amber-300'
+                    }`}
+                  >
+                    Arrival time
+                  </button>
+                </div>
+              </div>
+
+              {racFrtMode === 'minutes' ? (
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  inputMode="numeric"
+                  value={racFrtMinutes}
+                  onChange={(e) => setRacFrtMinutes(e.target.value)}
+                  placeholder="e.g. 45"
+                  aria-label="RAC arrival time in minutes"
+                  className="w-full p-2 text-xs rounded-lg border border-amber-300 font-mono bg-white focus:ring-2 focus:ring-amber-500"
+                />
+              ) : (
+                <div className="space-y-1">
+                  <input
+                    type="datetime-local"
+                    value={racArrivalAt}
+                    onChange={(e) => setRacArrivalAt(e.target.value)}
+                    aria-label="Time the RAC technician reached site"
+                    className="w-full p-2 text-xs rounded-lg border border-amber-300 bg-white focus:ring-2 focus:ring-amber-500"
+                  />
+                  <p className="text-[10px] text-amber-800">
+                    {racFrtFromArrival === null
+                      ? `Disruption started ${disruption.disruptionStartDateTime}`
+                      : `Works out to ${racFrtFromArrival} minutes from the ${disruption.disruptionStartDateTime} start.`}
+                  </p>
+                </div>
+              )}
+
+              <p className="text-[10px] text-amber-800">
+                Asked once. It is stored on the record and feeds the RAC FRT column and the Active
+                Disruptions report.
               </p>
             </div>
           )}

@@ -25,7 +25,7 @@ import {
   Disruption,
 } from '../types';
 import { generateDisruptionId } from '../utils/idGenerator';
-import { formatDateTimeIST, getCurrentISTDate } from '../utils/dateUtils';
+import { formatDateTimeIST, formatToIST, getCurrentISTDate, hoursBetween } from '../utils/dateUtils';
 import { SubIssuePicker } from './SubIssuePicker';
 
 interface LiveTrackerFormProps {
@@ -93,9 +93,16 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
   const [selectedSubIssues, setSelectedSubIssues] = useState<string[]>([]);
   const [liveUpdateText, setLiveUpdateText] = useState('');
   const [internalRemarksText, setInternalRemarksText] = useState('');
-  // First response times in minutes; blank stays blank rather than becoming 0.
-  const [ccFrtInput, setCcFrtInput] = useState('');
-  const [mstFrtInput, setMstFrtInput] = useState('');
+  /**
+   * What CC FRT will come out as: the gap between the start the operator typed
+   * and now. Shown live so a mistyped start date is obvious before saving. The
+   * server recomputes it on submit; this is only a preview.
+   */
+  const ccFrtPreview = useMemo(() => {
+    if (!startDate || !startTime) return null;
+    const hrs = hoursBetween(formatDateTimeIST(startDate, startTime), formatToIST(new Date()));
+    return hrs === null ? null : Math.max(0, Math.round(hrs * 60));
+  }, [startDate, startTime]);
 
   // UI state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -274,7 +281,7 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
     setIsSubmitting(true);
 
     try {
-      const disruptionStartDateTime = formatDateTimeIST(startDate, startTime);
+      const startDateTime = formatDateTimeIST(startDate, startTime);
 
       const payload: Partial<Disruption> = {
         disruptionId: generatedDisruptionId,
@@ -302,7 +309,7 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
         region: regionInput.trim() || selectedOutlet?.region || '',
         mstRacName: mstRacNameInput.trim() || selectedOutlet?.mstRacName || '',
         mstRacContact: mstRacContactInput.trim() || selectedOutlet?.mstRacContact || '',
-        disruptionStartDateTime,
+        disruptionStartDateTime: startDateTime,
         disruptionStartDate: startDate,
         disruptionStartTime: startTime,
         ccPoc,
@@ -311,8 +318,6 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
         currentStatus,
         subIssues: selectedSubIssues,
         latestLiveUpdate: liveUpdateText.trim(),
-        ccFrtMins: ccFrtInput.trim() === '' ? undefined : Number(ccFrtInput),
-        mstFrtMins: mstFrtInput.trim() === '' ? undefined : Number(mstFrtInput),
         createdBy: currentUser || ccPoc,
       };
 
@@ -364,8 +369,6 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
       setTicketId('');
       setCurrentStatus('No Update');
       setLiveUpdateText('');
-      setCcFrtInput('');
-      setMstFrtInput('');
       setSelectedSubIssues([]);
       handleSetCurrentTime();
     } catch (err: unknown) {
@@ -927,47 +930,35 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
           </div>
         </div>
 
-        {/* Step 5: First response times - feed the AVG CC/MST FRT report tiles */}
+        {/* Step 5: First response time.
+            CC FRT is derived from the start time and the moment this form is
+            submitted, so there is nothing to type. The RAC figure is not asked
+            for here at all - it is asked once, on the update that sets RAC
+            Visited, because only the person closing that step knows it. */}
         <div className="space-y-2">
           <div className="flex items-center justify-between border-b border-slate-200 pb-2">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
               5. First Response Time
             </span>
-            <span className="text-xs text-slate-400">Optional - leave blank if not known yet</span>
+            <span className="text-xs text-slate-400">Calculated, not entered</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label htmlFor="cc-frt-input" className="block text-xs font-semibold text-slate-700 mb-1">
-                CC FRT (minutes)
-              </label>
-              <input
-                id="cc-frt-input"
-                type="number"
-                min="0"
-                step="1"
-                inputMode="numeric"
-                value={ccFrtInput}
-                onChange={(e) => setCcFrtInput(e.target.value)}
-                placeholder="e.g. 3"
-                className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-white font-mono"
-              />
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <p className="text-xs font-semibold text-slate-700 mb-0.5">CC FRT</p>
+              <p className="text-sm font-bold text-slate-900 font-mono">
+                {ccFrtPreview === null ? '—' : `${ccFrtPreview} min`}
+              </p>
+              <p className="text-[10px] text-slate-500 mt-0.5">
+                From the disruption start to this entry being saved
+              </p>
             </div>
-            <div>
-              <label htmlFor="mst-frt-input" className="block text-xs font-semibold text-slate-700 mb-1">
-                MST / RAC FRT (minutes)
-              </label>
-              <input
-                id="mst-frt-input"
-                type="number"
-                min="0"
-                step="1"
-                inputMode="numeric"
-                value={mstFrtInput}
-                onChange={(e) => setMstFrtInput(e.target.value)}
-                placeholder="e.g. 25"
-                className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-white font-mono"
-              />
+            <div className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2">
+              <p className="text-xs font-semibold text-slate-700 mb-0.5">RAC / MST FRT</p>
+              <p className="text-sm font-bold text-slate-400 font-mono">Asked on RAC Visited</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">
+                Entered once, when the technician's arrival is marked
+              </p>
             </div>
           </div>
         </div>

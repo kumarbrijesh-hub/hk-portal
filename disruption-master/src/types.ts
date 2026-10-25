@@ -76,6 +76,29 @@ export function isProtectedStatus(status: string): boolean {
   return PROTECTED_STATUSES.includes(status);
 }
 
+/** Status that stamps each step, so timings can be derived from transitions. */
+export const STEP_STAMP_FIELDS: Record<string, 'racAlignedAt' | 'racVisitedAt' | 'oemAlignedAt' | 'oemVisitedAt'> = {
+  'RAC Aligned': 'racAlignedAt',
+  'RAC Visited': 'racVisitedAt',
+  'OEM Aligned': 'oemAlignedAt',
+  'OEM Visited': 'oemVisitedAt',
+};
+
+/** Which party a resolving status credits, for the resolution TAT breakdown. */
+export const RESOLVED_BY_FOR_STATUS: Record<string, 'RAC' | 'OEM' | 'Dealer' | 'CC'> = {
+  'Resolved by RAC': 'RAC',
+  'Resolved by OEM': 'OEM',
+  'Resolved by Dealer': 'Dealer',
+  'Resolved by CC': 'CC',
+};
+
+/**
+ * The status that needs the RAC arrival time entered. Only the person setting
+ * it knows how long the technician took, so it is asked for there and nowhere
+ * else.
+ */
+export const STATUS_REQUIRING_RAC_FRT = 'RAC Visited';
+
 export const INACTIVE_STATUSES: CurrentStatus[] = [
   'Resolved by RAC',
   'Resolved by OEM',
@@ -191,9 +214,38 @@ export interface Disruption {
    */
   ticketFrozenAt?: string;
 
-  /** First response time in minutes, entered by the operator. */
+  /**
+   * CC first response, in minutes. Derived, never typed: the gap between when
+   * the disruption started and when CC logged it.
+   */
   ccFrtMins?: number;
+  /**
+   * How long the RAC technician took to reach site, in minutes. Asked for once,
+   * when the record first reaches RAC Visited, because only the person closing
+   * that step knows it.
+   */
   mstFrtMins?: number;
+
+  /**
+   * When the record entered each step. Stamped the first time that status is
+   * set and then left alone, so a status being set twice does not move it.
+   */
+  racAlignedAt?: string;
+  racVisitedAt?: string;
+  oemAlignedAt?: string;
+  oemVisitedAt?: string;
+
+  /**
+   * OEM first response, in hours: OEM Visited minus OEM Aligned. Unlike the RAC
+   * figure this is never typed - both ends are timestamps the app already has.
+   */
+  oemFrtHours?: number;
+
+  /** When a resolving status was first set, and who it credited. */
+  resolvedAt?: string;
+  resolvedBy?: 'RAC' | 'OEM' | 'Dealer' | 'CC';
+  /** Hours from the disruption starting to it being resolved. */
+  resolutionTatHours?: number;
 
   /**
    * When the record was last put on an audit hold (IST, DD/MM/YYYY HH:MM:SS).

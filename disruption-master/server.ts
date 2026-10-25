@@ -28,7 +28,14 @@ import {
 import { formatDateTimeIST, formatToIST, getCurrentISTDate, hoursBetween } from './src/utils/dateUtils';
 import { deriveIssues, readIssues, readSubIssues } from './src/utils/issueTaxonomy';
 import { formatHoursMinutes } from './src/utils/auditHold';
-import { CURRENT_STATUS_OPTIONS, isAuditStatus, PROTECTED_STATUSES } from './src/types';
+import {
+  CURRENT_STATUS_OPTIONS,
+  isAuditStatus,
+  PROTECTED_STATUSES,
+  RESOLVED_BY_FOR_STATUS,
+  STATUS_REQUIRING_RAC_FRT,
+  STEP_STAMP_FIELDS,
+} from './src/types';
 
 /**
  * Keeps `auditStartedAt` in step with the status: stamped when a record goes on
@@ -358,6 +365,30 @@ const DB_BACKUP_FILE = `${DB_FILE}.bak`;
  * file or the new one, never a half-written one - and the previous copy is kept
  * alongside as a last resort.
  */
+/**
+ * Fills in the timing fields for records saved before they existed.
+ *
+ * Their step stamps were never taken, so OEM's first response genuinely cannot
+ * be recovered and stays blank. Resolution TAT can be: a closed record's end
+ * time is the moment the store came back, which is the resolution moment, so it
+ * stands in for the stamp that was never written. Runs once at boot and only
+ * touches records missing the field.
+ */
+function backfillDerivedTimings(): number {
+  let touched = 0;
+  for (const record of db.disruptions) {
+    const party = RESOLVED_BY_FOR_STATUS[record.currentStatus];
+    if (party) {
+      if (!record.resolvedBy) record.resolvedBy = party;
+      if (!record.resolvedAt && record.endTime) record.resolvedAt = record.endTime;
+    }
+    const before = record.resolutionTatHours;
+    recomputeDerivedTimings(record);
+    if (record.resolutionTatHours !== before) touched++;
+  }
+  return touched;
+}
+
 function saveDb() {
   try {
     const json = JSON.stringify(db, null, 2);
@@ -368,6 +399,14 @@ function saveDb() {
     fs.renameSync(DB_TMP_FILE, DB_FILE);
   } catch (err) {
     console.error('Error persisting database to disk:', err);
+  }
+}
+
+{
+  const touched = backfillDerivedTimings();
+  if (touched > 0) {
+    console.log(`[Store] Backfilled resolution TAT on ${touched} existing record(s).`);
+    saveDb();
   }
 }
 
@@ -826,6 +865,24 @@ async function syncOutletMaster(): Promise<{ success: boolean; count: number; er
     saveDb();
     return { success: false, count: db.outlets.length, error: errorMsg };
   }
+}
+
+/**
+ * Re-derives every timing that can be worked out from the record's own
+ * timestamps. Called after any status change, so the figures cannot drift from
+ * the steps the record actually went through.
+ *
+ * Only OEM's first response is derived this way - RAC's is typed in, because
+ * the technician's arrival is not a moment the app ever sees. Resolution TAT
+ * runs from the disruption starting, not from the vendor being aligned, since
+ * that is the number the store actually felt.
+ */
+function recomputeDerivedTimings(record: Disruption): void {
+  const oemFrt = hoursBetween(record.oemAlignedAt, record.oemVisitedAt);
+  record.oemFrtHours = oemFrt === null ? undefined : Number(oemFrt.toFixed(2));
+
+  const tat = hoursBetween(record.disruptionStartDateTime, record.resolvedAt);
+  record.resolutionTatHours = tat === null ? undefined : Number(tat.toFixed(2));
 }
 
 /** Looks a disruption up by ID, ignoring case and stray spaces. */
@@ -1569,8 +1626,16 @@ async function startServer() {
       endTime: data.endTime || '',
       duration: data.duration || '',
       ticketClosedAt: data.ticketClosedAt || '',
-      ccFrtMins: frt(data.ccFrtMins),
-      mstFrtMins: frt(data.mstFrtMins),
+      // Derived, not supplied: how long CC took to log the disruption after it
+      // began. Any client-sent value is deliberately ignored.
+      ccFrtMins: (() => {
+        const hrs = hoursBetween(
+          formatDateTimeIST(data.disruptionStartDate, data.disruptionStartTime),
+          formattedIST
+        );
+        return hrs === null ? undefined : Math.max(0, Math.round(hrs * 60));
+      })(),
+      mstFrtMins: undefined,
       // Built from the mandatory date and time fields, never from "now": a
       // back-dated incident must keep its real start, since every duration,
       // closure and downtime figure is measured from it.
@@ -1637,6 +1702,30 @@ async function startServer() {
       : undefined;
     const effectiveSubIssues = incomingSubIssues ?? readSubIssues(disruption);
 
+    // Reaching RAC Visited without saying how long the technician took leaves a
+    // hole nobody can fill later, so it is required the first time - and only
+    // the first time, since a status set again should not ask twice.
+    const rawRacFrt = req.body?.racFrtMins ?? req.body?.mstFrtMins;
+    let incomingRacFrt: number | undefined;
+    if (rawRacFrt !== undefined && rawRacFrt !== null && String(rawRacFrt).trim() !== '') {
+      const n = Number(rawRacFrt);
+      if (!Number.isFinite(n) || n < 0) {
+        return res.status(400).json({ error: 'RAC arrival time must be a number of minutes.' });
+      }
+      incomingRacFrt = Math.round(n);
+    }
+    if (
+      targetStatus === STATUS_REQUIRING_RAC_FRT &&
+      previousStatus !== STATUS_REQUIRING_RAC_FRT &&
+      disruption.mstFrtMins === undefined &&
+      incomingRacFrt === undefined
+    ) {
+      return res.status(400).json({
+        error: 'Enter how many minutes the RAC technician took to reach site before setting RAC Visited.',
+        needs: 'racFrtMins',
+      });
+    }
+
     const resolvedStatuses = ['Resolved by RAC', 'Resolved by OEM', 'Resolved by Dealer', 'Resolved by CC'];
     if (resolvedStatuses.includes(targetStatus) && effectiveSubIssues.length === 0) {
       return res
@@ -1681,6 +1770,27 @@ async function startServer() {
       disruption.auditStartedAt,
       formattedIST
     );
+
+    // Stamp the step this status represents, but only the first time: setting a
+    // status again later should not move the moment it was first reached.
+    const stampField = STEP_STAMP_FIELDS[targetStatus];
+    if (stampField && !disruption[stampField]) {
+      disruption[stampField] = formattedIST;
+    }
+
+    // Same for resolution: the first resolving status is the one that counts.
+    const resolvedByParty = RESOLVED_BY_FOR_STATUS[targetStatus];
+    if (resolvedByParty && !disruption.resolvedAt) {
+      disruption.resolvedAt = formattedIST;
+      disruption.resolvedBy = resolvedByParty;
+    }
+
+    // The RAC arrival time is only ever asked for here, so take it when it comes.
+    if (incomingRacFrt !== undefined) {
+      disruption.mstFrtMins = incomingRacFrt;
+    }
+
+    recomputeDerivedTimings(disruption);
 
     saveDb();
 

@@ -175,6 +175,11 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
       'Disruption End Time (Auto)',
       'Duration (Auto)',
       'Duration (Hrs)',
+      'CC FRT (Mins, Auto)',
+      'RAC FRT (Mins)',
+      'OEM FRT (Hrs, Auto)',
+      'Resolved By',
+      'Resolution TAT (Hrs, Auto)',
       'City Lead',
       'Regional Head',
       'Week',
@@ -220,6 +225,11 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
         d.endTime || '',
         d.duration || '',
         durationHoursLabel(d),
+        d.ccFrtMins ?? '',
+        d.mstFrtMins ?? '',
+        d.oemFrtHours ?? '',
+        d.resolvedBy || '',
+        d.resolutionTatHours ?? '',
         d.cityLead || '',
         d.regionalHead || '',
         d.week || '',
@@ -457,6 +467,21 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
               <th className="py-3 px-3 whitespace-nowrap">Ticket ID</th>
               <th className="py-3 px-3 whitespace-nowrap">Disruption End Time</th>
               <th className="py-3 px-3 whitespace-nowrap text-right">Duration (Hrs)</th>
+              <th className="py-3 px-3 whitespace-nowrap text-right" title="Start to this entry being logged">
+                CC FRT
+              </th>
+              <th className="py-3 px-3 whitespace-nowrap text-right" title="Entered when RAC Visited was set">
+                RAC FRT
+              </th>
+              <th
+                className="py-3 px-3 whitespace-nowrap text-right"
+                title="OEM Visited minus OEM Aligned"
+              >
+                OEM FRT
+              </th>
+              <th className="py-3 px-3 whitespace-nowrap text-right" title="Start to resolution">
+                Resolution TAT
+              </th>
               <th className="py-3 px-3 whitespace-nowrap">Current Status</th>
               <th className="py-3 px-3 min-w-[190px]">Issue / Sub Issue</th>
               <th className="py-3 px-4 min-w-[240px]">Latest Live Update</th>
@@ -636,6 +661,49 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
                         </div>
                       ) : (
                         <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+
+                    {/* CC FRT - derived from the start and the logging time */}
+                    <td className="py-3 px-3 whitespace-nowrap text-right font-mono text-[11px] text-slate-700">
+                      {d.ccFrtMins === undefined ? (
+                        <span className="text-slate-400 font-sans">—</span>
+                      ) : (
+                        `${d.ccFrtMins}m`
+                      )}
+                    </td>
+
+                    {/* RAC FRT - the one figure that is typed in */}
+                    <td className="py-3 px-3 whitespace-nowrap text-right font-mono text-[11px] text-slate-700">
+                      {d.mstFrtMins === undefined ? (
+                        <span className="text-slate-400 font-sans">—</span>
+                      ) : (
+                        `${d.mstFrtMins}m`
+                      )}
+                    </td>
+
+                    {/* OEM FRT - derived from the two OEM stamps */}
+                    <td className="py-3 px-3 whitespace-nowrap text-right font-mono text-[11px] text-slate-700">
+                      {d.oemFrtHours === undefined ? (
+                        <span className="text-slate-400 font-sans">—</span>
+                      ) : (
+                        `${d.oemFrtHours.toFixed(2)}h`
+                      )}
+                    </td>
+
+                    {/* Resolution TAT, with who it credits */}
+                    <td className="py-3 px-3 whitespace-nowrap text-right">
+                      {d.resolutionTatHours === undefined ? (
+                        <span className="text-slate-400">—</span>
+                      ) : (
+                        <div>
+                          <div className="font-mono text-[11px] font-semibold text-slate-800">
+                            {d.resolutionTatHours.toFixed(2)}h
+                          </div>
+                          {d.resolvedBy && (
+                            <div className="text-[10px] text-slate-500">by {d.resolvedBy}</div>
+                          )}
+                        </div>
                       )}
                     </td>
 
