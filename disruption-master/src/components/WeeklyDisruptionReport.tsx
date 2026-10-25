@@ -15,8 +15,13 @@ import { getReportFileTimestamp, formatReportGeneratedTimestamp } from '../utils
 import { currentWeekIndex, isoWeekOfIndex, weekIndexOf } from '../utils/repeatOffender';
 import { exportActiveReportToPNG } from '../utils/reportExport';
 
-/** How many weeks of history the grid shows, newest first. */
-const WEEKS_SHOWN = 10;
+/**
+ * How many weeks of history the grid shows, newest first. Ten covers the recent
+ * picture; the longer spans exist because back-filled history can run months
+ * back, and a fixed ten-week window would hide it entirely.
+ */
+const WEEK_SPAN_OPTIONS = [10, 20, 30, 52] as const;
+const DEFAULT_WEEKS_SHOWN = 10;
 
 const REPORT_ELEMENT_ID = 'weekly-disruption-report';
 
@@ -51,6 +56,7 @@ function cellTone(count: number): string {
 }
 
 export const WeeklyDisruptionReport: React.FC<WeeklyDisruptionReportProps> = ({ disruptions }) => {
+  const [weeksShown, setWeeksShown] = useState<number>(DEFAULT_WEEKS_SHOWN);
   const [outletSearch, setOutletSearch] = useState('');
   const [selectedOutlets, setSelectedOutlets] = useState<Set<string>>(new Set());
   const [isGeneratingPng, setIsGeneratingPng] = useState(false);
@@ -59,8 +65,8 @@ export const WeeklyDisruptionReport: React.FC<WeeklyDisruptionReportProps> = ({ 
   /** Newest week first, which is the order the printed report uses. */
   const weekColumns = useMemo(() => {
     const now = currentWeekIndex();
-    return Array.from({ length: WEEKS_SHOWN }, (_, i) => now - i);
-  }, []);
+    return Array.from({ length: weeksShown }, (_, i) => now - i);
+  }, [weeksShown]);
 
   const oldestWeekShown = weekColumns[weekColumns.length - 1];
 
@@ -190,10 +196,25 @@ export const WeeklyDisruptionReport: React.FC<WeeklyDisruptionReportProps> = ({ 
             <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
               Weekly Disruption Count
             </h2>
-            <span className="text-xs text-slate-500">Last {WEEKS_SHOWN} weeks, newest first</span>
+            <span className="text-xs text-slate-500">Newest week first</span>
           </div>
 
           <div className="flex items-center gap-2">
+            <label htmlFor="weekly-span" className="text-[11px] text-slate-500">
+              Show
+            </label>
+            <select
+              id="weekly-span"
+              value={weeksShown}
+              onChange={(e) => setWeeksShown(Number(e.target.value))}
+              className="px-2 py-1.5 text-xs rounded-md border border-slate-300 bg-white text-slate-700"
+            >
+              {WEEK_SPAN_OPTIONS.map((n) => (
+                <option key={n} value={n}>
+                  Last {n} weeks
+                </option>
+              ))}
+            </select>
             {exportNote && <span className="text-xs font-medium text-emerald-700">{exportNote}</span>}
             <button
               type="button"
@@ -307,7 +328,7 @@ export const WeeklyDisruptionReport: React.FC<WeeklyDisruptionReportProps> = ({ 
 
         {rows.length === 0 ? (
           <p className="px-4 py-10 text-center text-sm text-slate-500">
-            No disruptions recorded in the last {WEEKS_SHOWN} weeks
+            No disruptions recorded in the last {weeksShown} weeks
             {selectedOutlets.size > 0 ? ' for the selected outlets' : ''}.
           </p>
         ) : (

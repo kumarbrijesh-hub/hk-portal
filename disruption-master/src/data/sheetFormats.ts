@@ -24,7 +24,7 @@ export interface SheetColumnSpec {
 }
 
 export interface SheetFormatSpec {
-  key: 'outletMaster' | 'disruptionTimings' | 'tickets';
+  key: 'outletMaster' | 'disruptionTimings' | 'tickets' | 'historicalDisruptions';
   title: string;
   /** Default tab name the app looks for. */
   defaultTab: string;
@@ -51,6 +51,120 @@ export const TIMESTAMP_FORMAT_HELP = [
 
 export const TIMESTAMP_TIMEZONE_NOTE =
   'All times are read as IST (Asia/Kolkata). Do not add a timezone suffix.';
+
+
+/**
+ * One-off import of disruptions that were recorded outside the app - the
+ * history kept in a spreadsheet before the app existed. Unlike the three sync
+ * feeds this is not polled: it is pasted in once, so that the weekly count and
+ * the performance reports cover those months too.
+ */
+export const HISTORICAL_DISRUPTIONS_FORMAT: SheetFormatSpec = {
+  key: 'historicalDisruptions',
+  title: 'Historical Disruptions (one-off import)',
+  defaultTab: 'Disruptions',
+  purpose:
+    'Back-fills disruptions that were recorded before the app, so reports cover the full history rather than starting from the day the app went live.',
+  matching:
+    'Each row gets the same Disruption ID the app would have generated: OutletID-YYMMDDHHMM from the outlet and the start time. A row whose ID already exists is skipped, so running the same file twice cannot double-count.',
+  columns: [
+    {
+      name: 'Outlet ID',
+      required: true,
+      description: 'Store code. Does not have to be in the current store master - a closed store still imports.',
+      alsoAccepts: ['outlet_id', 'outletid', 'store id'],
+      example: '30322',
+    },
+    {
+      name: 'Disruption Start Date',
+      required: true,
+      description: 'Date the disruption began. DD/MM/YYYY or YYYY-MM-DD.',
+      alsoAccepts: ['start date', 'date', 'disruption date'],
+      example: '14/05/2026',
+    },
+    {
+      name: 'Disruption Start Time',
+      required: false,
+      description: 'Time it began, HH:MM or HH:MM:SS. Blank is read as 00:00:00.',
+      alsoAccepts: ['start time', 'time'],
+      example: '09:15:00',
+    },
+    {
+      name: 'Store Name',
+      required: false,
+      description: 'Used when the outlet is not in the current master. Otherwise the master wins.',
+      example: 'Faridabad New DLF ES7',
+    },
+    {
+      name: 'City',
+      required: false,
+      description: 'Used when the outlet is not in the current master.',
+      example: 'Faridabad',
+    },
+    {
+      name: 'Bucket',
+      required: false,
+      description: 'False Alarm / Invalid, Non Breakdown or Breakdown. Defaults to Non Breakdown.',
+      example: 'Breakdown',
+    },
+    {
+      name: 'Current Status',
+      required: false,
+      description:
+        'Status at the end of the record, e.g. Resolved by RAC. An unrecognised value is kept as text and reported. Defaults to No Update.',
+      alsoAccepts: ['status'],
+      example: 'Resolved by RAC',
+    },
+    {
+      name: 'Issue',
+      required: false,
+      description: 'Issue category, as free text. Matched against the issue master where it can be.',
+      example: 'Cold Room',
+    },
+    {
+      name: 'Sub Issue',
+      required: false,
+      description: 'Sub-issue. Several can be separated with a comma or a semicolon.',
+      alsoAccepts: ['sub-issue', 'subissue', 'sub issues'],
+      example: 'Compressor Failure',
+    },
+    {
+      name: 'CC POC',
+      required: false,
+      description: 'Who handled it. Defaults to the account running the import.',
+      alsoAccepts: ['cc poc name', 'poc'],
+      example: 'kumarbrijesh',
+    },
+    {
+      name: 'Ticket ID',
+      required: false,
+      description: 'Ticket or nugget number, if there was one.',
+      alsoAccepts: ['ticket_id', 'nugget id', 'ticket no'],
+      example: 'NUG-55120',
+    },
+    {
+      name: 'End Time',
+      required: false,
+      description:
+        'When it ended. Duration is computed from the start, exactly as the Disruption Timings sync does. Blank leaves the record open.',
+      alsoAccepts: ['end_time', 'disruption end time', 'closure time', 'resolved at'],
+      example: '14/05/2026 13:40:00',
+    },
+    {
+      name: 'Live Update',
+      required: false,
+      description: 'Whatever note the old sheet carried. Becomes the first history entry on the record.',
+      alsoAccepts: ['remark', 'remarks', 'update', 'comments'],
+      example: 'RAC aligned, compressor replaced same day',
+    },
+  ],
+  notes: [
+    'Only Outlet ID and Disruption Start Date are mandatory. Everything else can be blank.',
+    'Two rows for the same outlet in the same minute collapse to one record, because they produce the same Disruption ID. Give them different start times if they really are two disruptions.',
+    'Run the preview first: it reports how many rows would import, how many are already present, and which rows have a problem, without writing anything.',
+    'Imported records are ordinary disruptions afterwards - they appear in the Master Log, the weekly count and the performance summary, and the Timings and Ticket feeds can still update them by Disruption ID.',
+  ],
+};
 
 export const SHEET_FORMATS: SheetFormatSpec[] = [
   {
@@ -294,7 +408,7 @@ export function templateCsvFor(spec: SheetFormatSpec): string {
 }
 
 export function formatSpecFor(key: SheetFormatSpec['key']): SheetFormatSpec {
-  const spec = SHEET_FORMATS.find((s) => s.key === key);
+  const spec = [...SHEET_FORMATS, HISTORICAL_DISRUPTIONS_FORMAT].find((s) => s.key === key);
   if (!spec) throw new Error(`No sheet format spec for "${key}"`);
   return spec;
 }

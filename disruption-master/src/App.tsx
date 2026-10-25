@@ -548,6 +548,8 @@ export default function App() {
             onSyncSource={handleSyncSource}
             onUploadSourceCsv={handleUploadSourceCsv}
             onBulkUploadOutlets={handleBulkUploadOutlets}
+            currentUserEmail={sessionUser?.email ?? ''}
+            onReloadDisruptions={async () => setDisruptions(await fetchDisruptions())}
           />
         )}
       </main>

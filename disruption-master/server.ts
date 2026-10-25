@@ -25,10 +25,17 @@ import {
   SyncStatus,
   SyncStatuses,
 } from './src/types';
-import { formatDateTimeIST, formatToIST, getCurrentISTDate, hoursBetween } from './src/utils/dateUtils';
+import {
+  formatDateTimeIST,
+  formatToIST,
+  getCurrentISTDate,
+  hoursBetween,
+  parseISTTimestamp,
+} from './src/utils/dateUtils';
+import { generateDisruptionId } from './src/utils/idGenerator';
 import { deriveIssues, readIssues, readSubIssues } from './src/utils/issueTaxonomy';
 import { formatHoursMinutes } from './src/utils/auditHold';
-import { isAuditStatus } from './src/types';
+import { BucketType, CURRENT_STATUS_OPTIONS, isAuditStatus } from './src/types';
 
 /**
  * Keeps `auditStartedAt` in step with the status: stamped when a record goes on
@@ -309,12 +316,52 @@ try {
     fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf-8');
   }
 } catch (err) {
-  console.error('Failed to load DB file, using in-memory defaults:', err);
+  // A damaged store.json would otherwise drop us to seed data, and the next
+  // save would write that over the real records. The backup is one save behind,
+  // which loses far less than starting from seeds.
+  console.error('Failed to load DB file:', err);
+  try {
+    const backup = path.join(DATA_DIR, 'store.json.bak');
+    if (fs.existsSync(backup)) {
+      const parsed = JSON.parse(fs.readFileSync(backup, 'utf-8'));
+      if (parsed.users) db.users = parsed.users;
+      if (parsed.outlets) db.outlets = parsed.outlets;
+      if (parsed.disruptions) db.disruptions = parsed.disruptions;
+      if (parsed.config) db.config = migrateConfig(parsed.config);
+      if (parsed.syncStatuses) db.syncStatuses = { ...db.syncStatuses, ...parsed.syncStatuses };
+      console.warn(
+        `[Store] Recovered from store.json.bak — ${db.disruptions.length} disruptions, ${db.outlets.length} outlets.`
+      );
+    } else {
+      console.error('[Store] No backup to recover from; starting from seed data.');
+    }
+  } catch (backupErr) {
+    console.error('[Store] Backup is unreadable too; starting from seed data:', backupErr);
+  }
 }
 
+const DB_TMP_FILE = `${DB_FILE}.tmp`;
+const DB_BACKUP_FILE = `${DB_FILE}.bak`;
+
+/**
+ * Persists the store.
+ *
+ * Writing straight over store.json is not safe here: the whole file is
+ * rewritten on every save, and the platform restarts this pod several times a
+ * day, so a save can be cut in half. A truncated file makes the next boot fall
+ * back to the seed data and then write that over the real records. Writing to a
+ * temp file and renaming makes the swap atomic - a reader sees either the old
+ * file or the new one, never a half-written one - and the previous copy is kept
+ * alongside as a last resort.
+ */
 function saveDb() {
   try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf-8');
+    const json = JSON.stringify(db, null, 2);
+    fs.writeFileSync(DB_TMP_FILE, json, 'utf-8');
+    if (fs.existsSync(DB_FILE)) {
+      fs.copyFileSync(DB_FILE, DB_BACKUP_FILE);
+    }
+    fs.renameSync(DB_TMP_FILE, DB_FILE);
   } catch (err) {
     console.error('Error persisting database to disk:', err);
   }
@@ -1293,6 +1340,244 @@ async function startServer() {
       saveDb();
       res.status(400).json({ error: errorMsg, source: key, status });
     }
+  });
+
+
+  /**
+   * One-off back-fill of disruptions recorded before the app existed.
+   *
+   * Deliberately forgiving: a months-old spreadsheet will have gaps and
+   * wording the app has never seen, and refusing the whole file over one bad
+   * row would be useless. Each row is judged on its own, problems are reported
+   * per row, and `dryRun` answers "what would happen" without writing.
+   */
+  app.post('/api/disruptions/bulk-import', ownerOnly, (req, res) => {
+    const csvText = String(req.body?.csvText || '');
+    const dryRun = Boolean(req.body?.dryRun);
+    const importedBy = String(req.body?.importedBy || userFromRequest(req)?.email || 'Import');
+
+    if (!csvText.trim()) {
+      return res.status(400).json({ error: 'Paste the rows to import, including the header row.' });
+    }
+
+    let table: { headers: string[]; rows: string[][] };
+    try {
+      table = parseCsvTable(csvText);
+    } catch (err: unknown) {
+      return res
+        .status(400)
+        .json({ error: err instanceof Error ? err.message : 'Could not read the pasted rows.' });
+    }
+
+    const findIndex = makeHeaderIndexer(table.headers);
+    const idxOutlet = findIndex('outlet id', ['outlet id', 'outlet_id', 'outletid', 'store id']);
+    const idxDate = findIndex('disruption start date', [
+      'disruption start date',
+      'start date',
+      'disruption date',
+      'date',
+    ]);
+    const idxTime = findIndex('disruption start time', ['disruption start time', 'start time', 'time']);
+    const idxStore = findIndex('store name', ['store name', 'store', 'outlet name']);
+    const idxCity = findIndex('city', ['city', 'location']);
+    const idxBucket = findIndex('bucket', ['bucket', 'category']);
+    const idxStatus = findIndex('current status', ['current status', 'status']);
+    const idxIssue = findIndex('issue', ['issue', 'issue identified']);
+    const idxSubIssue = findIndex('sub issue', ['sub issue', 'sub-issue', 'subissue', 'sub issues']);
+    const idxCcPoc = findIndex('cc poc', ['cc poc', 'cc poc name', 'poc']);
+    const idxTicket = findIndex('ticket id', ['ticket id', 'ticket_id', 'nugget id', 'ticket no']);
+    const idxEnd = findIndex('end time', [
+      'end time',
+      'end_time',
+      'disruption end time',
+      'closure time',
+      'resolved at',
+    ]);
+    const idxUpdate = findIndex('live update', ['live update', 'remark', 'remarks', 'update', 'comments']);
+
+    if (idxOutlet === -1) {
+      return res.status(400).json({
+        error: 'Outlet ID column not found. The header row must carry an "Outlet ID" column.',
+        headersSeen: table.headers,
+      });
+    }
+    if (idxDate === -1) {
+      return res.status(400).json({
+        error: 'Disruption Start Date column not found. The header row must carry a start date column.',
+        headersSeen: table.headers,
+      });
+    }
+
+    const { formattedIST } = getCurrentISTDate();
+    const problems: { row: number; reason: string }[] = [];
+    const prepared: Disruption[] = [];
+    const seenInFile = new Set<string>();
+    let alreadyPresent = 0;
+    let duplicateInFile = 0;
+    let unknownOutlet = 0;
+    const unknownStatuses = new Set<string>();
+
+    table.rows.forEach((row, i) => {
+      // +2 because row 1 is the header and spreadsheets count from 1.
+      const rowNo = i + 2;
+      const outletId = (row[idxOutlet] || '').trim().toUpperCase();
+      if (!outletId) {
+        problems.push({ row: rowNo, reason: 'No Outlet ID' });
+        return;
+      }
+
+      const rawDate = (row[idxDate] || '').trim();
+      const rawTime = idxTime === -1 ? '' : (row[idxTime] || '').trim();
+      if (!rawDate) {
+        problems.push({ row: rowNo, reason: 'No start date' });
+        return;
+      }
+
+      // Reuse the app's own timestamp reader so the import accepts exactly the
+      // formats the rest of the app does, then rebuild the canonical strings.
+      const startMs = parseISTTimestamp(rawTime ? `${rawDate} ${rawTime}` : rawDate);
+      if (startMs === null) {
+        const shown = `${rawDate} ${rawTime}`.trim();
+        problems.push({ row: rowNo, reason: `Start date "${shown}" is not a date the app can read` });
+        return;
+      }
+      const ist = new Date(startMs + 5.5 * 60 * 60 * 1000);
+      const yyyy = ist.getUTCFullYear();
+      const mm = String(ist.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(ist.getUTCDate()).padStart(2, '0');
+      const hh = String(ist.getUTCHours()).padStart(2, '0');
+      const mi = String(ist.getUTCMinutes()).padStart(2, '0');
+      const ss = String(ist.getUTCSeconds()).padStart(2, '0');
+      const startDate = `${yyyy}-${mm}-${dd}`;
+      const startTime = `${hh}:${mi}:${ss}`;
+      const startDateTime = `${dd}/${mm}/${yyyy} ${startTime}`;
+
+      const disruptionId = generateDisruptionId(outletId, startDate, startTime);
+      if (!disruptionId) {
+        problems.push({ row: rowNo, reason: 'Could not build a Disruption ID from the outlet and start time' });
+        return;
+      }
+      if (findDisruptionById(disruptionId)) {
+        alreadyPresent++;
+        return;
+      }
+      if (seenInFile.has(disruptionId)) {
+        duplicateInFile++;
+        return;
+      }
+      seenInFile.add(disruptionId);
+
+      const master = db.outlets.find((o) => o.outletId.trim().toUpperCase() === outletId);
+      if (!master) unknownOutlet++;
+
+      const rawBucket = idxBucket === -1 ? '' : (row[idxBucket] || '').trim();
+      const bucket = (['False Alarm / Invalid', 'Non Breakdown', 'Breakdown'] as BucketType[]).find(
+        (b) => b.toLowerCase() === rawBucket.toLowerCase()
+      );
+
+      const rawStatus = idxStatus === -1 ? '' : (row[idxStatus] || '').trim();
+      const status = CURRENT_STATUS_OPTIONS.find((o) => o.toLowerCase() === rawStatus.toLowerCase());
+      if (rawStatus && !status) unknownStatuses.add(rawStatus);
+
+      const subIssues = (idxSubIssue === -1 ? '' : row[idxSubIssue] || '')
+        .split(/[,;]/)
+        .map((v) => v.trim())
+        .filter(Boolean);
+      const issuesFromMaster = deriveIssues(subIssues, db.config.issueMaster);
+      const rawIssue = idxIssue === -1 ? '' : (row[idxIssue] || '').trim();
+      const issues = issuesFromMaster.length > 0 ? issuesFromMaster : rawIssue ? [rawIssue] : [];
+
+      const liveUpdate =
+        (idxUpdate === -1 ? '' : (row[idxUpdate] || '').trim()) || 'Imported from historical records.';
+
+      const record: Disruption = {
+        disruptionId,
+        outletId,
+        storeName: master?.storeName || (idxStore === -1 ? '' : row[idxStore] || '') || `Store ${outletId}`,
+        city: master?.city || (idxCity === -1 ? '' : row[idxCity] || '') || 'Unspecified',
+        mode: master?.mode || 'Dark Store',
+        vendor: master?.vendor || 'RAC',
+        pocName: master?.pocName || '',
+        pocContact: master?.pocContact || '',
+        amcCoverage: master?.amcCoverage || '',
+        currentVendor: master?.currentVendor || master?.vendor || '',
+        region: master?.region || '',
+        mstRacName: master?.mstRacName || '',
+        mstRacContact: master?.mstRacContact || '',
+        disruptionStartDateTime: startDateTime,
+        disruptionStartDate: startDate,
+        disruptionStartTime: startTime,
+        ccPoc: (idxCcPoc === -1 ? '' : (row[idxCcPoc] || '').trim()) || importedBy,
+        bucket: bucket || 'Non Breakdown',
+        ticketId: idxTicket === -1 ? undefined : (row[idxTicket] || '').trim() || undefined,
+        currentStatus: status || 'No Update',
+        subIssues,
+        issues,
+        subIssue: subIssues[0],
+        issue: issues[0],
+        latestLiveUpdate: liveUpdate,
+        lastUpdatedBy: importedBy,
+        lastUpdatedAt: formattedIST,
+        createdBy: importedBy,
+        // The record is historical: its creation time is its own start, not now,
+        // so CC FRT and any age-based reporting stay honest.
+        createdAt: startDateTime,
+        updatedAt: formattedIST,
+        updateHistory: [
+          {
+            updateId: `UPD-IMP-${disruptionId}`,
+            disruptionId,
+            updateText: liveUpdate,
+            updatedBy: importedBy,
+            updatedAt: startDateTime,
+            previousStatus: 'No Update',
+            newStatus: status || 'No Update',
+          },
+        ],
+      };
+
+      // End time last, so the duration is worked out from the start just set.
+      const rawEnd = idxEnd === -1 ? '' : (row[idxEnd] || '').trim();
+      if (rawEnd) applyEndTime(record, rawEnd);
+
+      prepared.push(record);
+    });
+
+    const summary = {
+      rowsRead: table.rows.length,
+      wouldImport: prepared.length,
+      alreadyPresent,
+      duplicateInFile,
+      unknownOutlet,
+      unknownStatuses: Array.from(unknownStatuses),
+      problems: problems.slice(0, 50),
+      problemCount: problems.length,
+      headersSeen: table.headers,
+    };
+
+    if (dryRun) {
+      return res.json({ dryRun: true, ...summary });
+    }
+
+    if (prepared.length === 0) {
+      return res.json({ dryRun: false, imported: 0, ...summary });
+    }
+
+    // Newest first, matching how the list is held everywhere else.
+    db.disruptions.unshift(...prepared);
+    db.disruptions.sort((a, b) => {
+      const bt = parseISTTimestamp(b.disruptionStartDateTime) ?? 0;
+      const at = parseISTTimestamp(a.disruptionStartDateTime) ?? 0;
+      return bt - at;
+    });
+    saveDb();
+
+    console.log(
+      `[Import] ${prepared.length} historical disruptions imported by ${maskEmail(importedBy)} ` +
+        `(${alreadyPresent} already present, ${problems.length} rows with problems).`
+    );
+
+    res.json({ dryRun: false, imported: prepared.length, ...summary });
   });
 
   // Replaces the whole outlet master, so it is an owner-only action.
