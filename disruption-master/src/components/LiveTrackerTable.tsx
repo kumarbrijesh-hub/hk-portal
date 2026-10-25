@@ -18,6 +18,9 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { Disruption } from '../types';
+import { LiveUpdateLog } from './LiveUpdateLog';
+import { cumulativeLiveUpdate } from '../utils/liveUpdateLog';
+import { orderByDisruptionVolume } from '../utils/reportExport';
 import { StatusBadge, BucketBadge } from './StatusBadge';
 import { readIssues, readSubIssues } from '../utils/issueTaxonomy';
 import { hoursBetween } from '../utils/dateUtils';
@@ -187,7 +190,8 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
       'Shift',
     ];
 
-    const rows = filteredDisruptions.map((d) => {
+    // Worst store first, the same order the Active report uses.
+    const rows = orderByDisruptionVolume(filteredDisruptions).map((d) => {
       const isMissing = !d.ticketId || d.ticketId.trim() === '' ? 'Yes' : 'No';
       return [
         d.ticketMissing || isMissing,
@@ -218,7 +222,7 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
         d.bucket,
         d.parentTicketId || d.ticketId || '',
         d.currentStatus,
-        d.latestLiveUpdate,
+        cumulativeLiveUpdate(d),
         d.remark || '',
         readIssues(d).join(' | '),
         readSubIssues(d).join(' | '),
@@ -484,7 +488,7 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
               </th>
               <th className="py-3 px-3 whitespace-nowrap">Current Status</th>
               <th className="py-3 px-3 min-w-[190px]">Issue / Sub Issue</th>
-              <th className="py-3 px-4 min-w-[240px]">Latest Live Update</th>
+              <th className="py-3 px-4 min-w-[240px]">Live Updates</th>
               <th className="py-3 px-3 whitespace-nowrap">Last Updated By / At</th>
 
               {/* LOD & AMC Escalation Matrix Columns (Placed at the LAST of data columns as requested) */}
@@ -735,9 +739,7 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
                     {/* Latest Live Update, with the team-only handover note under
                         it. The note is shown here but never exported. */}
                     <td className="py-3 px-4">
-                      <p className="text-xs text-slate-700 line-clamp-2" title={d.latestLiveUpdate}>
-                        {d.latestLiveUpdate}
-                      </p>
+                      <LiveUpdateLog disruption={d} compact />
                       {d.internalRemarks && (
                         <p
                           className="mt-1 text-[11px] text-slate-500 italic line-clamp-2 border-l-2 border-slate-300 pl-2"
@@ -977,8 +979,8 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
 
               {/* Latest Live Update */}
               <div className="text-xs bg-slate-50 p-2 rounded border border-slate-200">
-                <span className="text-[10px] text-slate-500 block font-semibold">Latest Live Update:</span>
-                <p className="text-slate-700 italic mt-0.5">{d.latestLiveUpdate}</p>
+                <span className="text-[10px] text-slate-500 block font-semibold mb-1">Live Updates:</span>
+                <LiveUpdateLog disruption={d} />
               </div>
 
               {/* Actions */}

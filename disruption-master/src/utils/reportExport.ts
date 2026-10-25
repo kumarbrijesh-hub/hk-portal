@@ -3,6 +3,33 @@ import { toPng } from 'html-to-image';
 import { Disruption } from '../types';
 import { getCurrentISTDate, getReportFileTimestamp } from './dateUtils';
 import { readIssues, readSubIssues } from './issueTaxonomy';
+import { liveUpdateReportBlock } from './liveUpdateLog';
+
+/**
+ * Worst store first.
+ *
+ * A report is read from the top, so the outlet breaking most often has to be
+ * the first thing on it. Rows are grouped by outlet and the groups ordered by
+ * how many disruptions that outlet has in this report, heaviest first; within
+ * an outlet the newest disruption leads. Ties fall back to the outlet ID so
+ * two runs over the same data always produce the same file.
+ */
+export function orderByDisruptionVolume(disruptions: Disruption[]): Disruption[] {
+  const countByOutlet = new Map<string, number>();
+  for (const d of disruptions) {
+    const outlet = (d.outletId || '').trim().toUpperCase();
+    countByOutlet.set(outlet, (countByOutlet.get(outlet) || 0) + 1);
+  }
+
+  return [...disruptions].sort((a, b) => {
+    const outletA = (a.outletId || '').trim().toUpperCase();
+    const outletB = (b.outletId || '').trim().toUpperCase();
+    const volume = (countByOutlet.get(outletB) || 0) - (countByOutlet.get(outletA) || 0);
+    if (volume !== 0) return volume;
+    if (outletA !== outletB) return outletA.localeCompare(outletB);
+    return (b.disruptionStartDateTime || '').localeCompare(a.disruptionStartDateTime || '');
+  });
+}
 
 /**
  * Chrome refuses canvases beyond roughly 16384px on a side. Staying under that
@@ -108,7 +135,8 @@ export async function exportActiveReportToPNG(elementId: string, customFilename?
   }
 }
 
-export function exportActiveReportToCSV(disruptions: Disruption[], activeFiltersDescription?: string) {
+export function exportActiveReportToCSV(unorderedDisruptions: Disruption[], activeFiltersDescription?: string) {
+  const disruptions = orderByDisruptionVolume(unorderedDisruptions);
   const { formattedIST } = getCurrentISTDate();
   const timestampHeader = `Report Generated: ${formattedIST} IST`;
   const filterHeader = activeFiltersDescription ? `Filters Applied: ${activeFiltersDescription}` : 'All Active Records';
@@ -130,7 +158,7 @@ export function exportActiveReportToCSV(disruptions: Disruption[], activeFilters
     'Issue',
     'Sub Issues',
     'Sub Issue Count',
-    'Latest Live Update',
+    'Live Updates',
     'Last Updated By',
     'Last Updated At',
   ];
@@ -152,7 +180,7 @@ export function exportActiveReportToCSV(disruptions: Disruption[], activeFilters
     `"${readIssues(d).join(' | ').replace(/"/g, '""')}"`,
     `"${readSubIssues(d).join(' | ').replace(/"/g, '""')}"`,
     String(readSubIssues(d).length),
-    `"${(d.latestLiveUpdate || '').replace(/"/g, '""')}"`,
+    `"${liveUpdateReportBlock(d).replace(/"/g, '""')}"`,
     d.lastUpdatedBy,
     d.lastUpdatedAt,
   ]);
@@ -176,7 +204,8 @@ export function exportActiveReportToCSV(disruptions: Disruption[], activeFilters
   document.body.removeChild(link);
 }
 
-export function exportActiveReportToExcel(disruptions: Disruption[], activeFiltersDescription?: string) {
+export function exportActiveReportToExcel(unorderedDisruptions: Disruption[], activeFiltersDescription?: string) {
+  const disruptions = orderByDisruptionVolume(unorderedDisruptions);
   const { formattedIST } = getCurrentISTDate();
 
   const metadataRows = [
@@ -203,7 +232,7 @@ export function exportActiveReportToExcel(disruptions: Disruption[], activeFilte
     'Issue': readIssues(d).join(' | ') || 'N/A',
     'Sub Issues': readSubIssues(d).join(' | ') || 'N/A',
     'Sub Issue Count': readSubIssues(d).length,
-    'Latest Live Update': d.latestLiveUpdate,
+    'Live Updates': liveUpdateReportBlock(d),
     'Last Updated By': d.lastUpdatedBy,
     'Last Updated At': d.lastUpdatedAt,
   }));
@@ -226,8 +255,9 @@ export function exportActiveReportToExcel(disruptions: Disruption[], activeFilte
     { wch: 22 }, // Start Time
     { wch: 18 }, // Current Status
     { wch: 24 }, // Issue
-    { wch: 26 }, // Sub Issue
-    { wch: 45 }, // Latest Live Update
+    { wch: 26 }, // Sub Issues
+    { wch: 16 }, // Sub Issue Count
+    { wch: 60 }, // Live Updates - holds the detail block plus the running log
     { wch: 16 }, // Last Updated By
     { wch: 22 }, // Last Updated At
   ];

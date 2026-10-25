@@ -28,6 +28,7 @@ import {
 import { formatDateTimeIST, formatToIST, getCurrentISTDate, hoursBetween } from './src/utils/dateUtils';
 import { deriveIssues, readIssues, readSubIssues } from './src/utils/issueTaxonomy';
 import { formatHoursMinutes } from './src/utils/auditHold';
+import { cumulativeLiveUpdate } from './src/utils/liveUpdateLog';
 import {
   CURRENT_STATUS_OPTIONS,
   isAuditStatus,
@@ -2019,7 +2020,7 @@ async function startServer() {
         d.bucket,
         d.parentTicketId || d.ticketId || '',
         d.currentStatus,
-        d.latestLiveUpdate,
+        cumulativeLiveUpdate(d),
         d.remark || '',
         readIssues(d).join(' | '),
         d.subIssue || '',

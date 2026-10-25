@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { AUDIT_HOLD_LIMIT_HOURS, Disruption, isDisruptionActive } from '../types';
 import { StatusBadge, BucketBadge } from './StatusBadge';
+import { LiveUpdateLog } from './LiveUpdateLog';
 import {
   exportActiveReportToCSV,
   exportActiveReportToExcel,
@@ -1021,9 +1022,7 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
 
                       {/* Live Updates */}
                       <td className="py-3 px-4">
-                        <p className="text-xs text-slate-700 line-clamp-2" title={d.latestLiveUpdate}>
-                          {d.latestLiveUpdate || '—'}
-                        </p>
+                        <LiveUpdateLog disruption={d} compact />
                       </td>
 
                       {/* CC FRT (M) */}
@@ -1200,9 +1199,7 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
 
                         {/* Live Updates */}
                         <td className="py-3 px-4">
-                          <p className="text-xs text-slate-700 line-clamp-2" title={d.latestLiveUpdate}>
-                            {d.latestLiveUpdate || '—'}
-                          </p>
+                          <LiveUpdateLog disruption={d} compact />
                         </td>
 
                         {/* CC FRT (M) */}
@@ -1328,9 +1325,9 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
 
                 <div className="text-xs p-2.5 rounded-lg border border-slate-100 bg-slate-50 space-y-1">
                   <span className="text-[10px] font-semibold text-slate-500 uppercase">
-                    Latest Live Update ({d.lastUpdatedBy} @ {d.lastUpdatedAt})
+                    Live Updates (last by {d.lastUpdatedBy} @ {d.lastUpdatedAt})
                   </span>
-                  <p className="text-slate-800">{d.latestLiveUpdate}</p>
+                  <LiveUpdateLog disruption={d} />
                 </div>
 
                 <div className="flex items-center justify-end gap-2 pt-1">
