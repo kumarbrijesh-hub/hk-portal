@@ -32,6 +32,12 @@ RUN rm -f appsrc.part-*.gz appsrc.tar.gz srcpack.part-*.gz srcpack.tar.gz; \
     fi; \
     if [ -f deltav2.tar.gz ]; then \
       tar -xzf deltav2.tar.gz && rm -f deltav2.tar.gz; \
+    fi; \
+    if ls deltav3.part-*.gz >/dev/null 2>&1; then \
+      cat deltav3.part-*.gz > deltav3.tar.gz && rm -f deltav3.part-*.gz; \
+    fi; \
+    if [ -f deltav3.tar.gz ]; then \
+      tar -xzf deltav3.tar.gz && rm -f deltav3.tar.gz; \
     fi
 
 RUN npm install --no-audit --no-fund
