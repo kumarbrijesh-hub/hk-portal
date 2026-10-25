@@ -1,4 +1,0 @@
-"Outlet ID","Disruption Start Date","Disruption Start Time","End Time","Bucket","Current Status","Issue","Sub Issue","CC POC","Ticket ID","CC FRT (minutes)","RAC / MST FRT (minutes)","Live Update","Internal Remarks","Store Name","City"
-"30322","14/05/2026","09:15:00","14/05/2026 13:40:00","Breakdown","Resolved by RAC","Cold Room","Compressor Failure","Kumarbrijesh","NUG-55120","3","45","RAC aligned, compressor replaced same day","Night shift handled this","",""
-"31252","21/05/2026","11:00:00","21/05/2026 12:30:00","Non Breakdown","Resolved by CC","","","Kumarbrijesh","","2","NA","Reset remotely, no visit needed","","",""
-"","","","","","","","","","","","","","","",""

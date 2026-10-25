@@ -29,7 +29,6 @@ import {
 } from '../types';
 import { formatSpecFor, templateCsvFor } from '../data/sheetFormats';
 import { SheetFormatHelp } from './SheetFormatHelp';
-import { HistoricalImportPanel } from './HistoricalImportPanel';
 import { SheetSourcesPanel } from './SheetSourcesPanel';
 
 interface ConfigViewProps {
@@ -48,10 +47,6 @@ interface ConfigViewProps {
   onSyncSource: (key: SheetSourceKey) => Promise<void>;
   onUploadSourceCsv: (key: SheetSourceKey, csvText: string) => Promise<void>;
   onBulkUploadOutlets: (outlets: OutletMaster[]) => Promise<void>;
-  /** Who imported records get stamped as. */
-  currentUserEmail: string;
-  /** Reloads the records after a back-fill lands. */
-  onReloadDisruptions: () => void;
 }
 
 /** Store master template, identical to the one offered for the sheet sync. */
@@ -80,8 +75,6 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
   onSyncSource,
   onUploadSourceCsv,
   onBulkUploadOutlets,
-  currentUserEmail,
-  onReloadDisruptions,
 }) => {
   // Local config form state
   const [sources, setSources] = useState<SheetSources>({ ...config.sources });
@@ -761,12 +754,6 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
           )}
         </div>
 
-        {isOwner && (
-          <HistoricalImportPanel
-            importedBy={currentUserEmail}
-            onImported={onReloadDisruptions}
-          />
-        )}
 
 
         {/* Save Bar */}

@@ -24,7 +24,7 @@ export interface SheetColumnSpec {
 }
 
 export interface SheetFormatSpec {
-  key: 'outletMaster' | 'disruptionTimings' | 'tickets' | 'historicalDisruptions';
+  key: 'outletMaster' | 'disruptionTimings' | 'tickets';
   title: string;
   /** Default tab name the app looks for. */
   defaultTab: string;
@@ -52,147 +52,6 @@ export const TIMESTAMP_FORMAT_HELP = [
 export const TIMESTAMP_TIMEZONE_NOTE =
   'All times are read as IST (Asia/Kolkata). Do not add a timezone suffix.';
 
-
-/**
- * One-off import of disruptions that were recorded outside the app - the
- * history kept in a spreadsheet before the app existed. Unlike the three sync
- * feeds this is not polled: it is pasted in once, so that the weekly count and
- * the performance reports cover those months too.
- */
-export const HISTORICAL_DISRUPTIONS_FORMAT: SheetFormatSpec = {
-  key: 'historicalDisruptions',
-  title: 'Historical Disruptions (one-off import)',
-  defaultTab: 'Disruptions',
-  purpose:
-    'Back-fills disruptions that were recorded before the app, so reports cover the full history rather than starting from the day the app went live.',
-  matching:
-    'Each row gets the same Disruption ID the app would have generated: OutletID-YYMMDDHHMM from the outlet and the start time. A row whose ID already exists is skipped, so running the same file twice cannot double-count.',
-  columns: [
-    {
-      name: 'Outlet ID',
-      required: true,
-      description: 'Store code. Does not have to be in the current store master - a closed store still imports.',
-      alsoAccepts: ['outlet_id', 'outletid', 'store id', 'store code'],
-      example: '30322',
-    },
-    {
-      name: 'Disruption Start Date',
-      required: true,
-      description: 'Date the disruption began. DD/MM/YYYY or YYYY-MM-DD.',
-      alsoAccepts: ['start date', 'date', 'disruption date', 'outage date'],
-      example: '14/05/2026',
-    },
-    {
-      name: 'Disruption Start Time',
-      required: true,
-      description:
-        'Time it began, HH:MM or HH:MM:SS. Strongly recommended: the Disruption ID is built down to the minute, so two disruptions on the same store with the same (or blank) time collapse into one record.',
-      alsoAccepts: ['start time', 'time', 'outage time'],
-      example: '09:15:00',
-    },
-    {
-      name: 'End Time',
-      required: false,
-      description:
-        'When the store came back up, date and time together. Duration is computed from the start - do not send a duration column, it is always derived.',
-      alsoAccepts: ['end_time', 'disruption end time', 'closure time', 'resolved at', 'restoration time'],
-      example: '14/05/2026 13:40:00',
-    },
-    {
-      name: 'Bucket',
-      required: false,
-      description: 'False Alarm / Invalid, Non Breakdown or Breakdown. Defaults to Non Breakdown.',
-      alsoAccepts: ['category'],
-      example: 'Breakdown',
-    },
-    {
-      name: 'Current Status',
-      required: false,
-      description:
-        'Status the record ended on, e.g. Resolved by RAC. An unrecognised value is reported back and saved as No Update. Defaults to No Update.',
-      alsoAccepts: ['status', 'final status'],
-      example: 'Resolved by RAC',
-    },
-    {
-      name: 'Issue',
-      required: false,
-      description: 'Issue category. Filled in from the master when Sub Issue matches it, so this can be left blank.',
-      alsoAccepts: ['issue identified', 'issue category'],
-      example: 'Cold Room',
-    },
-    {
-      name: 'Sub Issue',
-      required: false,
-      description: 'Sub-issue. Several can be separated with a comma or a semicolon.',
-      alsoAccepts: ['sub-issue', 'subissue', 'sub issues', 'sub issue identified'],
-      example: 'Compressor Failure',
-    },
-    {
-      name: 'CC POC',
-      required: false,
-      description: 'Who handled it. Defaults to the account running the import.',
-      alsoAccepts: ['cc poc name', 'poc', 'handled by'],
-      example: 'Kumarbrijesh',
-    },
-    {
-      name: 'Ticket ID',
-      required: false,
-      description: 'Ticket or nugget number, if there was one.',
-      alsoAccepts: ['ticket_id', 'nugget id', 'ticket no'],
-      example: 'NUG-55120',
-    },
-    {
-      name: 'CC FRT (minutes)',
-      required: false,
-      description: 'Minutes to the first CC response. Blank, "-" or "NA" all mean it was not recorded.',
-      alsoAccepts: ['cc frt', 'ccfrt'],
-      example: '3',
-    },
-    {
-      name: 'RAC / MST FRT (minutes)',
-      required: false,
-      description: 'Minutes for the technician to reach site. Blank, "-" or "NA" all mean it was not recorded.',
-      alsoAccepts: ['rac frt', 'mst frt', 'racfrt', 'mstfrt'],
-      example: '45',
-    },
-    {
-      name: 'Live Update',
-      required: false,
-      description: 'Whatever note the old sheet carried. Becomes the first history entry on the record.',
-      alsoAccepts: ['update', 'comments', 'description'],
-      example: 'RAC aligned, compressor replaced same day',
-    },
-    {
-      name: 'Internal Remarks',
-      required: false,
-      description: 'Team-only note. Never appears in any report or export.',
-      alsoAccepts: ['internal note', 'team note', 'remark', 'remarks'],
-      example: 'Handled by night shift',
-    },
-    {
-      name: 'Store Name',
-      required: false,
-      description: 'Only used when the Outlet ID is not in the current store master. Otherwise the master wins.',
-      alsoAccepts: ['outlet name', 'store'],
-      example: 'Faridabad New DLF ES7',
-    },
-    {
-      name: 'City',
-      required: false,
-      description: 'Only used when the Outlet ID is not in the current store master.',
-      alsoAccepts: ['location'],
-      example: 'Faridabad',
-    },
-  ],
-  notes: [
-    'Only Outlet ID and Disruption Start Date are enforced, but fill Disruption Start Time too: the ID is built down to the minute, so two same-day disruptions on one store with a blank time become a single record.',
-    'Do NOT send these - the app fills them from the store master: Mode, Vendor, POC Name, POC Contact, AMC Coverage, Current Vendor, Region, MST/RAC Name, MST/RAC Contact and the LOD L1/L2/L3 columns.',
-    'Do NOT send Disruption ID, Duration or Week either. All three are derived, and a supplied value would be ignored.',
-    'OEM alignment and visit times, and OEM FRT, are not part of this import. Imported records simply carry no OEM timings, which is expected for history recorded before they were tracked.',
-    'Run the preview first: it reports how many rows would import, how many are already present, and which rows have a problem, without writing anything.',
-    'Imported records are ordinary disruptions afterwards - they appear in the Master Log, the weekly count and the performance summary, and the Timings and Ticket feeds can still update them by Disruption ID.',
-  ],
-};
 
 export const SHEET_FORMATS: SheetFormatSpec[] = [
   {
@@ -436,7 +295,7 @@ export function templateCsvFor(spec: SheetFormatSpec): string {
 }
 
 export function formatSpecFor(key: SheetFormatSpec['key']): SheetFormatSpec {
-  const spec = [...SHEET_FORMATS, HISTORICAL_DISRUPTIONS_FORMAT].find((s) => s.key === key);
+  const spec = SHEET_FORMATS.find((s) => s.key === key);
   if (!spec) throw new Error(`No sheet format spec for "${key}"`);
   return spec;
 }

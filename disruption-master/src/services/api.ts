@@ -289,38 +289,3 @@ export async function deleteDisruption(disruptionId: string): Promise<void> {
     throw new Error(errData.error || `Failed to delete disruption (${res.status})`);
   }
 }
-
-export interface HistoricalImportResult {
-  dryRun: boolean;
-  imported?: number;
-  rowsRead: number;
-  wouldImport: number;
-  alreadyPresent: number;
-  duplicateInFile: number;
-  unknownOutlet: number;
-  unknownStatuses: string[];
-  problems: { row: number; reason: string }[];
-  problemCount: number;
-  headersSeen: string[];
-}
-
-/**
- * Back-fills disruptions recorded before the app. With `dryRun` the server
- * reports what would happen and writes nothing.
- */
-export async function importHistoricalDisruptions(
-  csvText: string,
-  dryRun: boolean,
-  importedBy: string
-): Promise<HistoricalImportResult> {
-  const res = await fetch(`${API_BASE}/disruptions/bulk-import`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ csvText, dryRun, importedBy }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data.error || `Import failed (HTTP ${res.status}).`);
-  }
-  return data as HistoricalImportResult;
-}
