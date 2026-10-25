@@ -21,6 +21,9 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
   onSuccess,
 }) => {
   const [updateText, setUpdateText] = useState('');
+  // Seeded from the record so an update that does not touch it keeps the
+  // previous shift's note instead of blanking it.
+  const [internalRemarks, setInternalRemarks] = useState(disruption.internalRemarks ?? '');
   const [targetStatus, setTargetStatus] = useState<CurrentStatus>(disruption.currentStatus);
   const [selectedSubIssues, setSelectedSubIssues] = useState<string[]>(readSubIssues(disruption));
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -50,6 +53,7 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           updateText: updateText.trim(),
+          internalRemarks,
           updatedBy: currentUser || disruption.ccPoc || 'Operator',
           newStatus: targetStatus,
           subIssues: selectedSubIssues,
@@ -161,6 +165,24 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
               placeholder="e.g. Technician reached site at 11:15 AM. Identified motor contactor burnout..."
               className="w-full p-2.5 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-red-500 focus:border-red-500"
               required
+            />
+          </div>
+
+          {/* Team-only. Kept out of every report and export. */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label htmlFor="modal-internal-remarks" className="block text-xs font-semibold text-slate-700">
+                Internal Remarks <span className="text-slate-400 font-normal">(Optional)</span>
+              </label>
+              <span className="text-[11px] text-slate-400">Team only - never appears in any report</span>
+            </div>
+            <textarea
+              id="modal-internal-remarks"
+              rows={2}
+              value={internalRemarks}
+              onChange={(e) => setInternalRemarks(e.target.value)}
+              placeholder="Handover note for the next shift (e.g. MST Rajesh 98XXXXXX21, call before 9pm...)"
+              className="w-full p-2.5 text-xs rounded-lg border border-dashed border-slate-300 focus:ring-2 focus:ring-slate-400 focus:border-slate-400 bg-slate-50/60"
             />
           </div>
 

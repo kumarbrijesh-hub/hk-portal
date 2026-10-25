@@ -78,6 +78,21 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
     return allDisruptions.filter((d) => isDisruptionActive(d.currentStatus));
   }, [allDisruptions]);
 
+  /**
+   * Outlets carrying more than one open disruption at the same time. One store
+   * cannot genuinely be down twice, so the second row is a double entry someone
+   * needs to check and remove.
+   */
+  const duplicateOutletIds = useMemo(() => {
+    const seen = new Map<string, number>();
+    for (const d of allActiveDisruptions) {
+      const key = (d.outletId || '').trim();
+      if (!key) continue;
+      seen.set(key, (seen.get(key) ?? 0) + 1);
+    }
+    return new Set(Array.from(seen.entries()).filter(([, n]) => n > 1).map(([id]) => id));
+  }, [allActiveDisruptions]);
+
   // Unique options for filters from active pool
   const uniqueCities = useMemo(() => {
     return Array.from(new Set(allActiveDisruptions.map((d) => d.city).filter(Boolean))).sort();
@@ -933,6 +948,7 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
               ) : (
                 standardActiveDisruptions.map((d, index) => {
                   const isPinned = activeRowId === d.disruptionId;
+                  const isDuplicate = duplicateOutletIds.has((d.outletId || '').trim());
                   const durationHours = calculateDurationHours(d.disruptionStartDateTime);
                   const durHrs = durationHours === null ? '-' : durationHours.toFixed(1);
 
@@ -941,16 +957,31 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                       key={d.disruptionId}
                       id={`profix-row-${d.disruptionId}`}
                       onClick={() => setActiveRowId(isPinned ? null : d.disruptionId)}
-                      title="Click to lock row highlight for easy scrolling across columns"
+                      title={
+                        isDuplicate
+                          ? 'Duplicate: this outlet already has another open disruption. Check and remove one.'
+                          : 'Click to lock row highlight for easy scrolling across columns'
+                      }
                       className={`transition-colors duration-150 cursor-pointer group ${
                         isPinned
                           ? 'bg-amber-100 font-medium border-y-2 border-amber-400 shadow-xs'
-                          : 'hover:bg-amber-50/90'
+                          : isDuplicate
+                            ? 'bg-rose-50 hover:bg-rose-100/90 border-y border-rose-300'
+                            : 'hover:bg-amber-50/90'
                       }`}
                     >
-                      {/* # */}
+                      {/* #, carrying the duplicate marker so the flag is not
+                          colour-only for anyone who cannot tell the shades apart. */}
                       <td className="py-3 px-3 text-center text-slate-500 font-mono font-medium">
                         {index + 1}
+                        {isDuplicate && (
+                          <span
+                            className="block mt-0.5 text-[9px] font-sans font-bold uppercase tracking-wide text-rose-700"
+                            title="This outlet already has another open disruption"
+                          >
+                            Dup
+                          </span>
+                        )}
                       </td>
 
                       {/* City */}

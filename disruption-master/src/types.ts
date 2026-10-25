@@ -197,6 +197,12 @@ export interface Disruption {
   issue?: string;
   subIssue?: string;
   latestLiveUpdate: string;
+  /**
+   * Shift-handover note for the team: which technician, which number, who to
+   * call next. Deliberately kept out of every report and export, so it is the
+   * one field that can carry context nobody outside the team should read.
+   */
+  internalRemarks?: string;
   lastUpdatedBy: string;
   lastUpdatedAt: string;
   createdBy: string;

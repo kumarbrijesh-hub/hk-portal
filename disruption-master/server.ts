@@ -1538,6 +1538,9 @@ async function startServer() {
       issue: createIssues[0] ?? undefined,
       auditStartedAt: isAuditStatus(data.currentStatus) ? formattedIST : undefined,
       latestLiveUpdate: data.latestLiveUpdate.trim(),
+      // Team-only handover note. Stored with the record but deliberately left
+      // out of every export, so it never reaches a report.
+      internalRemarks: data.internalRemarks ? String(data.internalRemarks).trim() || undefined : undefined,
       lastUpdatedBy: data.createdBy || data.ccPoc || 'Operator',
       lastUpdatedAt: formattedIST,
       createdBy: data.createdBy || data.ccPoc || 'Operator',
@@ -1601,6 +1604,12 @@ async function startServer() {
 
     disruption.updateHistory.push(historyItem);
     disruption.latestLiveUpdate = updateText.trim();
+    // Only replace the handover note when this update actually carries one, so
+    // an update that leaves the box untouched does not wipe the last shift's.
+    if (req.body?.internalRemarks !== undefined) {
+      const note = String(req.body.internalRemarks).trim();
+      disruption.internalRemarks = note || undefined;
+    }
     disruption.currentStatus = targetStatus;
     disruption.lastUpdatedBy = updatedBy || disruption.ccPoc || 'Operator';
     disruption.lastUpdatedAt = formattedIST;

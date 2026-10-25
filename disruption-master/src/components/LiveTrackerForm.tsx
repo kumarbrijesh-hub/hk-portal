@@ -58,7 +58,8 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
   const [pocNameInput, setPocNameInput] = useState('');
   const [pocContactInput, setPocContactInput] = useState('');
 
-  // AMC & Escalation LOD fields (Auto-populated from Google Sheet)
+  // AMC & Escalation LOD fields. Taken from the matched sheet row and sent
+  // with the record; the card that let these be typed over has been removed.
   const [amcCoverageInput, setAmcCoverageInput] = useState('');
   const [currentVendorInput, setCurrentVendorInput] = useState('');
   const [lodL1NameInput, setLodL1NameInput] = useState('');
@@ -73,7 +74,6 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
   const [regionInput, setRegionInput] = useState('');
   const [mstRacNameInput, setMstRacNameInput] = useState('');
   const [mstRacContactInput, setMstRacContactInput] = useState('');
-  const [showEscalationDetails, setShowEscalationDetails] = useState(true);
 
   const [selectedOutlet, setSelectedOutlet] = useState<OutletMaster | null>(null);
   const [outletSearchOpen, setOutletSearchOpen] = useState(false);
@@ -90,6 +90,7 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
   const [currentStatus, setCurrentStatus] = useState<CurrentStatus>('No Update');
   const [selectedSubIssues, setSelectedSubIssues] = useState<string[]>([]);
   const [liveUpdateText, setLiveUpdateText] = useState('');
+  const [internalRemarksText, setInternalRemarksText] = useState('');
   // First response times in minutes; blank stays blank rather than becoming 0.
   const [ccFrtInput, setCcFrtInput] = useState('');
   const [mstFrtInput, setMstFrtInput] = useState('');
@@ -284,6 +285,7 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
         pocContact: pocContactInput.trim() || selectedOutlet?.pocContact || selectedOutlet?.coldPocContact2 || '+91 00000 00000',
         coldPocName2: pocNameInput.trim() || selectedOutlet?.pocName || selectedOutlet?.coldPocName2 || 'Store In-Charge',
         coldPocContact2: pocContactInput.trim() || selectedOutlet?.pocContact || selectedOutlet?.coldPocContact2 || '+91 00000 00000',
+        internalRemarks: internalRemarksText.trim() || undefined,
         amcCoverage: amcCoverageInput.trim() || selectedOutlet?.amcCoverage || '',
         currentVendor: currentVendorInput.trim() || selectedOutlet?.currentVendor || vendorInput.trim(),
         lodL1Name: lodL1NameInput.trim() || selectedOutlet?.lodL1Name || '',
@@ -681,234 +683,6 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
               />
             </div>
           </div>
-
-          {/* AMC Coverage, Current Vendor & LOD Escalation Matrix Card (Requested by User) */}
-          <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3.5 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-amber-900 uppercase tracking-wide">
-                  AMC Coverage & Escalation Matrix (LOD - 2 Levels)
-                </span>
-                {selectedOutlet && (selectedOutlet.amcCoverage || selectedOutlet.lodL1Name) && (
-                  <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded border border-emerald-300">
-                    ✓ Sheet Details Linked
-                  </span>
-                )}
-              </div>
-              <button
-                type="button"
-                id="btn-toggle-escalation-details"
-                onClick={() => setShowEscalationDetails(!showEscalationDetails)}
-                className="text-xs font-semibold text-amber-800 hover:text-amber-950 underline cursor-pointer"
-              >
-                {showEscalationDetails ? 'Collapse LOD Details' : 'Expand LOD Details'}
-              </button>
-            </div>
-
-            {showEscalationDetails && (
-              <div className="space-y-3 pt-1">
-                {/* AMC & Current Vendor & Region Row */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label htmlFor="amc-coverage-input" className="block text-[11px] font-semibold text-slate-700 mb-1">
-                      AMC Coverage {selectedOutlet?.amcCoverage && <span className="text-emerald-600 font-bold">(Auto)</span>}
-                    </label>
-                    <input
-                      id="amc-coverage-input"
-                      type="text"
-                      value={amcCoverageInput}
-                      onChange={(e) => setAmcCoverageInput(e.target.value)}
-                      placeholder="e.g., Comprehensive / Non-AMC"
-                      className="w-full p-1.5 text-xs rounded border border-amber-300 bg-white text-slate-800"
-                    />
-                  </div>
-
-                  <div>
-                    <label htmlFor="current-vendor-input" className="block text-[11px] font-semibold text-slate-700 mb-1">
-                      Current Vendor (AMC or Warranty) {selectedOutlet?.currentVendor && <span className="text-emerald-600 font-bold">(Auto)</span>}
-                    </label>
-                    <input
-                      id="current-vendor-input"
-                      type="text"
-                      value={currentVendorInput}
-                      onChange={(e) => setCurrentVendorInput(e.target.value)}
-                      placeholder="e.g., RAC / Voltas / BlueStar"
-                      className="w-full p-1.5 text-xs rounded border border-amber-300 bg-white text-slate-800 font-medium"
-                    />
-                  </div>
-
-                  <div>
-                    <label htmlFor="region-input" className="block text-[11px] font-semibold text-slate-700 mb-1">
-                      Region (Auto)
-                    </label>
-                    <input
-                      id="region-input"
-                      type="text"
-                      value={regionInput}
-                      onChange={(e) => setRegionInput(e.target.value)}
-                      placeholder="e.g., North / West / South"
-                      className="w-full p-1.5 text-xs rounded border border-amber-300 bg-white text-slate-800"
-                    />
-                  </div>
-                </div>
-
-                {/* LOD - 2 Level 1 Contacts */}
-                <div className="p-2.5 rounded bg-white border border-amber-200">
-                  <div className="text-[11px] font-bold text-slate-800 mb-2 flex items-center justify-between">
-                    <span>LOD - 2 Level 1 (L1) Escalation</span>
-                    <span className="text-[10px] text-slate-500 font-normal">Primary On-Call</span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    <div>
-                      <label htmlFor="lod-l1-name" className="block text-[10px] text-slate-600 mb-0.5">LOD - 2 L1 Name</label>
-                      <input
-                        id="lod-l1-name"
-                        type="text"
-                        value={lodL1NameInput}
-                        onChange={(e) => setLodL1NameInput(e.target.value)}
-                        placeholder="L1 Contact Name"
-                        className="w-full p-1 text-xs rounded border border-slate-300 bg-slate-50/50 text-slate-800"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="lod-l1-email" className="block text-[10px] text-slate-600 mb-0.5">LOD - 2 L1 Email</label>
-                      <input
-                        id="lod-l1-email"
-                        type="email"
-                        value={lodL1EmailInput}
-                        onChange={(e) => setLodL1EmailInput(e.target.value)}
-                        placeholder="l1.escalation@vendor.com"
-                        className="w-full p-1 text-xs rounded border border-slate-300 bg-slate-50/50 text-slate-800"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="lod-l1-contact" className="block text-[10px] text-slate-600 mb-0.5">LOD - 2 L1 Contact No</label>
-                      <input
-                        id="lod-l1-contact"
-                        type="text"
-                        value={lodL1ContactInput}
-                        onChange={(e) => setLodL1ContactInput(e.target.value)}
-                        placeholder="+91 ..."
-                        className="w-full p-1 text-xs rounded border border-slate-300 bg-slate-50/50 text-slate-800 font-mono"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* LOD - 2 Level 2 Contacts */}
-                <div className="p-2.5 rounded bg-white border border-amber-200">
-                  <div className="text-[11px] font-bold text-slate-800 mb-2 flex items-center justify-between">
-                    <span>LOD - 2 Level 2 (L2) Escalation</span>
-                    <span className="text-[10px] text-slate-500 font-normal">Secondary Escalation</span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    <div>
-                      <label htmlFor="lod-l2-name" className="block text-[10px] text-slate-600 mb-0.5">LOD - 2 L2 Name</label>
-                      <input
-                        id="lod-l2-name"
-                        type="text"
-                        value={lodL2NameInput}
-                        onChange={(e) => setLodL2NameInput(e.target.value)}
-                        placeholder="L2 Contact Name"
-                        className="w-full p-1 text-xs rounded border border-slate-300 bg-slate-50/50 text-slate-800"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="lod-l2-email" className="block text-[10px] text-slate-600 mb-0.5">LOD - 2 L2 Email</label>
-                      <input
-                        id="lod-l2-email"
-                        type="email"
-                        value={lodL2EmailInput}
-                        onChange={(e) => setLodL2EmailInput(e.target.value)}
-                        placeholder="l2.lead@vendor.com"
-                        className="w-full p-1 text-xs rounded border border-slate-300 bg-slate-50/50 text-slate-800"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="lod-l2-contact" className="block text-[10px] text-slate-600 mb-0.5">LOD - 2 L2 Contact No</label>
-                      <input
-                        id="lod-l2-contact"
-                        type="text"
-                        value={lodL2ContactInput}
-                        onChange={(e) => setLodL2ContactInput(e.target.value)}
-                        placeholder="+91 ..."
-                        className="w-full p-1 text-xs rounded border border-slate-300 bg-slate-50/50 text-slate-800 font-mono"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* LOD - 2 Level 3 Contacts */}
-                <div className="p-2.5 rounded bg-white border border-amber-200">
-                  <div className="text-[11px] font-bold text-slate-800 mb-2 flex items-center justify-between">
-                    <span>LOD - 2 Level 3 (L3) Escalation</span>
-                    <span className="text-[10px] text-slate-500 font-normal">Executive / Head Level</span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    <div>
-                      <label htmlFor="lod-l3-name" className="block text-[10px] text-slate-600 mb-0.5">LOD - 2 L3 Name</label>
-                      <input
-                        id="lod-l3-name"
-                        type="text"
-                        value={lodL3NameInput}
-                        onChange={(e) => setLodL3NameInput(e.target.value)}
-                        placeholder="L3 Contact Name"
-                        className="w-full p-1 text-xs rounded border border-slate-300 bg-slate-50/50 text-slate-800"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="lod-l3-email" className="block text-[10px] text-slate-600 mb-0.5">LOD - 2 L3 Email</label>
-                      <input
-                        id="lod-l3-email"
-                        type="email"
-                        value={lodL3EmailInput}
-                        onChange={(e) => setLodL3EmailInput(e.target.value)}
-                        placeholder="l3.head@vendor.com"
-                        className="w-full p-1 text-xs rounded border border-slate-300 bg-slate-50/50 text-slate-800"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="lod-l3-contact" className="block text-[10px] text-slate-600 mb-0.5">LOD - 2 L3 Contact No.</label>
-                      <input
-                        id="lod-l3-contact"
-                        type="text"
-                        value={lodL3ContactInput}
-                        onChange={(e) => setLodL3ContactInput(e.target.value)}
-                        placeholder="+91 ..."
-                        className="w-full p-1 text-xs rounded border border-slate-300 bg-slate-50/50 text-slate-800 font-mono"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* MST/RAC Row */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                  <div>
-                    <label htmlFor="mst-rac-name" className="block text-[10px] text-slate-600 mb-0.5">MST/RAC Name (Auto)</label>
-                    <input
-                      id="mst-rac-name"
-                      type="text"
-                      value={mstRacNameInput}
-                      onChange={(e) => setMstRacNameInput(e.target.value)}
-                      placeholder="MST Lead Name"
-                      className="w-full p-1 text-xs rounded border border-slate-300 bg-white text-slate-800"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="mst-rac-contact" className="block text-[10px] text-slate-600 mb-0.5">MST/RAC Contact No. (Auto)</label>
-                    <input
-                      id="mst-rac-contact"
-                      type="text"
-                      value={mstRacContactInput}
-                      onChange={(e) => setMstRacContactInput(e.target.value)}
-                      placeholder="+91 ..."
-                      className="w-full p-1 text-xs rounded border border-slate-300 bg-white text-slate-800 font-mono"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
         </div>
 
         {/* Step 2: Disruption Start Date & Time & Generated Disruption ID */}
@@ -1128,6 +902,26 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
               required
             />
             <MessageSquare className="w-4 h-4 text-slate-400 absolute right-3 bottom-3" />
+          </div>
+
+          {/* Internal only. Never leaves the app, so a shift handover can name
+              the technician and the number to call without that reaching a
+              report that goes outside the team. */}
+          <div className="pt-1">
+            <div className="flex items-center justify-between mb-1">
+              <label htmlFor="internal-remarks-textarea" className="text-xs font-semibold text-slate-700">
+                Internal Remarks <span className="text-slate-400 font-normal">(Optional)</span>
+              </label>
+              <span className="text-[11px] text-slate-400">Team only - never appears in any report or export</span>
+            </div>
+            <textarea
+              id="internal-remarks-textarea"
+              rows={2}
+              value={internalRemarksText}
+              onChange={(e) => setInternalRemarksText(e.target.value)}
+              placeholder="Handover note for the next shift (e.g. MST Rajesh 98XXXXXX21, call before 9pm, spare part already dispatched...)"
+              className="w-full p-3 text-xs rounded-lg border border-dashed border-slate-300 focus:ring-2 focus:ring-slate-400 focus:border-slate-400 bg-slate-50/60"
+            />
           </div>
         </div>
 

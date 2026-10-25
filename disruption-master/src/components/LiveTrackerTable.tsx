@@ -14,14 +14,23 @@ import {
   Pin,
   FileSpreadsheet,
   Layers,
-  Lock,
   Sparkles,
   ExternalLink,
 } from 'lucide-react';
 import { Disruption } from '../types';
 import { StatusBadge, BucketBadge } from './StatusBadge';
 import { readIssues, readSubIssues } from '../utils/issueTaxonomy';
+import { hoursBetween } from '../utils/dateUtils';
 import { buildOutletWeekIndex, repeatBadgeLabel, repeatStreakFor, weekIndexOf } from '../utils/repeatOffender';
+
+/**
+ * How long the store was down, in hours, from the disruption's own start and
+ * end timestamps. Empty while the disruption is still open.
+ */
+function durationHoursLabel(d: Disruption): string {
+  const hours = hoursBetween(d.disruptionStartDateTime, d.endTime);
+  return hours === null ? '' : `${hours.toFixed(2)}h`;
+}
 
 interface LiveTrackerTableProps {
   disruptions: Disruption[];
@@ -163,10 +172,9 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
       'Remark',
       'Issue Identified (Mandatory)',
       'Sub-issue Identified (Mandatory)',
-      'End time (Auto)',
+      'Disruption End Time (Auto)',
       'Duration (Auto)',
-      'Ticket Closed At (Auto)',
-      'Ticket State (Sheet)',
+      'Duration (Hrs)',
       'City Lead',
       'Regional Head',
       'Week',
@@ -211,8 +219,7 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
         readSubIssues(d).join(' | '),
         d.endTime || '',
         d.duration || '',
-        d.ticketClosedAt || '',
-        d.ticketStatus || '',
+        durationHoursLabel(d),
         d.cityLead || '',
         d.regionalHead || '',
         d.week || '',
@@ -448,8 +455,8 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
               <th className="py-3 px-3 whitespace-nowrap">CC POC</th>
               <th className="py-3 px-3 whitespace-nowrap">Bucket</th>
               <th className="py-3 px-3 whitespace-nowrap">Ticket ID</th>
-              <th className="py-3 px-3 whitespace-nowrap">Ticket State</th>
-              <th className="py-3 px-3 whitespace-nowrap">Closure / Down Time</th>
+              <th className="py-3 px-3 whitespace-nowrap">Disruption End Time</th>
+              <th className="py-3 px-3 whitespace-nowrap text-right">Duration (Hrs)</th>
               <th className="py-3 px-3 whitespace-nowrap">Current Status</th>
               <th className="py-3 px-3 min-w-[190px]">Issue / Sub Issue</th>
               <th className="py-3 px-4 min-w-[240px]">Latest Live Update</th>
@@ -605,35 +612,30 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
                       {d.ticketId || '—'}
                     </td>
 
-                    {/* Ticket state from the ticket sheet. Frozen once it reads closed. */}
+                    {/* When the disruption itself ended, from the timings sheet.
+                        Deliberately not the ticket's closure time: a ticket can
+                        close long after the store is back up. */}
                     <td className="py-3 px-3 whitespace-nowrap">
-                      {d.ticketStatus ? (
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border ${
-                            d.ticketFrozenAt
-                              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                              : 'bg-slate-100 border-slate-200 text-slate-700'
-                          }`}
-                        >
-                          {d.ticketStatus}
-                          {d.ticketFrozenAt && <Lock className="w-2.5 h-2.5" />}
-                        </span>
+                      {d.endTime ? (
+                        <span className="font-mono text-[11px] text-slate-700">{d.endTime}</span>
                       ) : (
-                        <span className="text-slate-400">—</span>
+                        <span className="text-[10px] font-semibold text-amber-700">Open</span>
                       )}
                     </td>
 
-                    {/* Closure time, with the down time it works out to from the start */}
-                    <td className="py-3 px-3 whitespace-nowrap">
-                      {d.endTime || d.ticketClosedAt ? (
+                    {/* End minus start, in hours, so one row says how long the
+                        store was actually down. Spans midnight correctly because
+                        both ends are full IST timestamps. */}
+                    <td className="py-3 px-3 whitespace-nowrap text-right">
+                      {durationHoursLabel(d) ? (
                         <div>
-                          <div className="font-mono text-[11px] text-slate-700">
-                            {d.endTime || d.ticketClosedAt}
+                          <div className="font-mono text-[11px] font-semibold text-slate-800">
+                            {durationHoursLabel(d)}
                           </div>
-                          <div className="text-[10px] font-semibold text-slate-500">{d.duration || '—'}</div>
+                          {d.duration && <div className="text-[10px] text-slate-500">{d.duration}</div>}
                         </div>
                       ) : (
-                        <span className="text-[10px] font-semibold text-amber-700">Open</span>
+                        <span className="text-slate-400">—</span>
                       )}
                     </td>
 
@@ -662,11 +664,21 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
                       )}
                     </td>
 
-                    {/* Latest Live Update */}
+                    {/* Latest Live Update, with the team-only handover note under
+                        it. The note is shown here but never exported. */}
                     <td className="py-3 px-4">
                       <p className="text-xs text-slate-700 line-clamp-2" title={d.latestLiveUpdate}>
                         {d.latestLiveUpdate}
                       </p>
+                      {d.internalRemarks && (
+                        <p
+                          className="mt-1 text-[11px] text-slate-500 italic line-clamp-2 border-l-2 border-slate-300 pl-2"
+                          title={d.internalRemarks}
+                        >
+                          <span className="not-italic font-semibold text-slate-400 mr-1">Internal:</span>
+                          {d.internalRemarks}
+                        </p>
+                      )}
                     </td>
 
                     {/* Last Updated By / At */}

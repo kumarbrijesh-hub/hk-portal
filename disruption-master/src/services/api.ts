@@ -193,6 +193,8 @@ export async function addLiveUpdate(
     newStatus?: string;
     issue?: string;
     subIssue?: string;
+    subIssues?: string[];
+    internalRemarks?: string;
   }
 ): Promise<{ message: string; disruption: Disruption; newUpdate: DisruptionUpdateHistory }> {
   const res = await fetch(`${API_BASE}/disruptions/${encodeURIComponent(disruptionId)}/updates`, {
