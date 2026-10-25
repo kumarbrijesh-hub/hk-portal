@@ -99,3 +99,35 @@ export function repeatStreakFor(
 export function repeatBadgeLabel(streak: RepeatStreak): string {
   return `${streak.weeks} Week Broken`;
 }
+
+/**
+ * ISO-8601 week number for an IST timestamp. Unlike `weekIndexOf`, whose value
+ * is only meaningful as a difference, this is the week number people actually
+ * write on a report - "week 41" - so it is what the weekly report shows.
+ *
+ * ISO rule: week 1 is the one containing the year's first Thursday, so a date
+ * in early January can belong to week 52/53 of the previous year.
+ */
+export function isoWeekOf(istTimestamp?: string): { year: number; week: number } | null {
+  const ms = parseISTTimestamp(istTimestamp);
+  if (ms === null) return null;
+  return isoWeekFromIstDays(Math.floor((ms + 5.5 * 60 * 60 * 1000) / DAY_MS));
+}
+
+/** Same thing for a Monday-anchored week index, so a column can be labelled. */
+export function isoWeekOfIndex(weekIndex: number): { year: number; week: number } {
+  // Day number of that week's Monday, back out of the index.
+  return isoWeekFromIstDays(weekIndex * 7 + FIRST_MONDAY_DAY);
+}
+
+function isoWeekFromIstDays(istDays: number): { year: number; week: number } {
+  // Shift to the Thursday of this date's week: the ISO year is whatever year
+  // that Thursday falls in, which is what makes the turn of the year work.
+  const dayOfWeek = ((istDays - FIRST_MONDAY_DAY) % 7 + 7) % 7; // 0 = Monday
+  const thursdayDays = istDays - dayOfWeek + 3;
+  const thursday = new Date(thursdayDays * DAY_MS);
+  const year = thursday.getUTCFullYear();
+  const jan1Days = Math.floor(Date.UTC(year, 0, 1) / DAY_MS);
+  const week = Math.floor((thursdayDays - jan1Days) / 7) + 1;
+  return { year, week };
+}

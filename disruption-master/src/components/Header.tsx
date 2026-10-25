@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  CalendarRange,
   RefreshCw,
   AlertTriangle,
   CheckCircle2,
@@ -18,7 +19,7 @@ import {
 } from 'lucide-react';
 import { SessionUser, SyncStatus } from '../types';
 
-export type AppTab = 'liveTracker' | 'activeDisruptions' | 'summary' | 'config';
+export type AppTab = 'liveTracker' | 'activeDisruptions' | 'weekly' | 'summary' | 'config';
 
 interface HeaderProps {
   activeTab: AppTab;
@@ -286,6 +287,20 @@ export const Header: React.FC<HeaderProps> = ({
             >
               {activeCount} Active
             </span>
+          </button>
+
+          <button
+            id="nav-weekly-report"
+            type="button"
+            onClick={() => setActiveTab('weekly')}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all whitespace-nowrap ${
+              activeTab === 'weekly'
+                ? 'bg-red-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <CalendarRange className="w-4 h-4" />
+            <span>Weekly Count</span>
           </button>
 
           <button

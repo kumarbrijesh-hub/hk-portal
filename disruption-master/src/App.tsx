@@ -11,6 +11,7 @@ import { LiveTrackerTable } from './components/LiveTrackerTable';
 import { ActiveDisruptionsView } from './components/ActiveDisruptionsView';
 import { ConfigView } from './components/ConfigView';
 import { PerformanceSummaryView } from './components/PerformanceSummaryView';
+import { WeeklyDisruptionReport } from './components/WeeklyDisruptionReport';
 import { LiveUpdateModal } from './components/LiveUpdateModal';
 import { UpdateHistoryModal } from './components/UpdateHistoryModal';
 import { SyncSheetModal } from './components/SyncSheetModal';
@@ -528,6 +529,8 @@ export default function App() {
         )}
 
         {/* TAB 3: DATE-WISE PERFORMANCE SUMMARY */}
+        {activeTab === 'weekly' && <WeeklyDisruptionReport disruptions={disruptions} />}
+
         {activeTab === 'summary' && <PerformanceSummaryView disruptions={disruptions} />}
 
         {/* TAB 4: GOOGLE SHEET & CONFIG */}
