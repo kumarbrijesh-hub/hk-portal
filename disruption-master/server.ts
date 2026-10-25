@@ -1393,7 +1393,17 @@ async function startServer() {
       'closure time',
       'resolved at',
     ]);
-    const idxUpdate = findIndex('live update', ['live update', 'remark', 'remarks', 'update', 'comments']);
+    const idxUpdate = findIndex('live update', ['live update', 'update', 'comments', 'description']);
+    const idxInternal = findIndex('internal remarks', ['internal remarks', 'internal note', 'team note', 'remark', 'remarks']);
+    const idxCcFrt = findIndex('cc frt (minutes)', ['cc frt (minutes)', 'cc frt', 'ccfrt', 'cc frt mins']);
+    const idxMstFrt = findIndex('rac / mst frt (minutes)', [
+      'rac / mst frt (minutes)',
+      'rac/mst frt',
+      'mst frt',
+      'rac frt',
+      'mstfrt',
+      'racfrt',
+    ]);
 
     if (idxOutlet === -1) {
       return res.status(400).json({
@@ -1490,6 +1500,16 @@ async function startServer() {
       const liveUpdate =
         (idxUpdate === -1 ? '' : (row[idxUpdate] || '').trim()) || 'Imported from historical records.';
 
+      // Blank, "-" and "NA" all mean "not recorded" in a hand-kept sheet, and a
+      // zero there would read as a zero-minute response rather than no data.
+      const readMinutes = (idx: number): number | undefined => {
+        if (idx === -1) return undefined;
+        const raw = (row[idx] || '').trim();
+        if (!raw || /^(na|n\/a|-|nil)$/i.test(raw)) return undefined;
+        const n = Number(raw.replace(/[^0-9.]/g, ''));
+        return Number.isFinite(n) && n >= 0 ? Math.round(n) : undefined;
+      };
+
       const record: Disruption = {
         disruptionId,
         outletId,
@@ -1516,6 +1536,9 @@ async function startServer() {
         subIssue: subIssues[0],
         issue: issues[0],
         latestLiveUpdate: liveUpdate,
+        internalRemarks: (idxInternal === -1 ? '' : (row[idxInternal] || '').trim()) || undefined,
+        ccFrtMins: readMinutes(idxCcFrt),
+        mstFrtMins: readMinutes(idxMstFrt),
         lastUpdatedBy: importedBy,
         lastUpdatedAt: formattedIST,
         createdBy: importedBy,
