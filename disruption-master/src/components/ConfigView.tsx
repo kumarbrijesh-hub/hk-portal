@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Download,
   FileSpreadsheet,
   Save,
   RefreshCw,
@@ -26,6 +27,8 @@ import {
   SyncStatus,
   SyncStatuses,
 } from '../types';
+import { formatSpecFor, templateCsvFor } from '../data/sheetFormats';
+import { SheetFormatHelp } from './SheetFormatHelp';
 import { SheetSourcesPanel } from './SheetSourcesPanel';
 
 interface ConfigViewProps {
@@ -44,6 +47,19 @@ interface ConfigViewProps {
   onSyncSource: (key: SheetSourceKey) => Promise<void>;
   onUploadSourceCsv: (key: SheetSourceKey, csvText: string) => Promise<void>;
   onBulkUploadOutlets: (outlets: OutletMaster[]) => Promise<void>;
+}
+
+/** Store master template, identical to the one offered for the sheet sync. */
+function downloadOutletCsvTemplate() {
+  const spec = formatSpecFor('outletMaster');
+  const blob = new Blob([templateCsvFor(spec)], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'Store_Master_Template.csv';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
 }
 
 export const ConfigView: React.FC<ConfigViewProps> = ({
@@ -704,10 +720,24 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
                 className="hidden"
               />
             </label>
-            <span className="text-[11px] text-slate-500">
-              Columns: Outlet ID, Store Name, City, Mode, Vendor, POC Name, POC Contact
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={downloadOutletCsvTemplate}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              >
+                <Download className="w-3 h-3" />
+                Download template CSV
+              </button>
+              <span className="text-[11px] text-slate-500">
+                Only Outlet ID is required. The template shows every column and an example row.
+              </span>
+            </div>
           </div>
+
+          {/* Same spec the Store Master sheet sync is documented against, so a
+              CSV built from it and a sheet built from it behave identically. */}
+          <SheetFormatHelp spec={formatSpecFor('outletMaster')} />
 
           {csvUploadSuccess && (
             <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center gap-2">

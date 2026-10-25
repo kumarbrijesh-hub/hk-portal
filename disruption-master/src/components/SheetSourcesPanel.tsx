@@ -17,6 +17,8 @@ import {
   SyncStatus,
   SyncStatuses,
 } from '../types';
+import { formatSpecFor } from '../data/sheetFormats';
+import { SheetFormatHelp } from './SheetFormatHelp';
 
 /**
  * The three sheet feeds, side by side.
@@ -235,6 +237,8 @@ export const SheetSourcesPanel: React.FC<SheetSourcesPanelProps> = ({
                   </button>
                 )}
               </div>
+
+              <SheetFormatHelp spec={formatSpecFor(key)} />
 
               {pasteOpenFor === key && (
                 <div className="space-y-2 border-t border-slate-200 pt-2">
