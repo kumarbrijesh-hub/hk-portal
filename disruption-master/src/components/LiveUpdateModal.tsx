@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Send, Activity, AlertCircle } from 'lucide-react';
-import { CurrentStatus, CURRENT_STATUS_OPTIONS, Disruption, RESOLVED_STATUSES_REQUIRING_ISSUE } from '../types';
+import { CurrentStatus, Disruption, RESOLVED_STATUSES_REQUIRING_ISSUE } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { SubIssuePicker } from './SubIssuePicker';
 import { readSubIssues } from '../utils/issueTaxonomy';
@@ -9,6 +9,8 @@ interface LiveUpdateModalProps {
   disruption: Disruption;
   currentUser: string;
   issueMaster: Record<string, string[]>;
+  /** The Current Status dropdown, as configured by an admin. */
+  statusOptions: string[];
   onClose: () => void;
   onSuccess: (updatedDisruption: Disruption) => void;
 }
@@ -17,6 +19,7 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
   disruption,
   currentUser,
   issueMaster,
+  statusOptions,
   onClose,
   onSuccess,
 }) => {
@@ -123,7 +126,7 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
               onChange={(e) => setTargetStatus(e.target.value as CurrentStatus)}
               className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-red-500 font-medium"
             >
-              {CURRENT_STATUS_OPTIONS.map((st) => (
+              {statusOptions.map((st) => (
                 <option key={st} value={st}>
                   {st} {st === disruption.currentStatus ? '(No Change)' : ''}
                 </option>

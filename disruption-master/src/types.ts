@@ -54,6 +54,28 @@ export function isAuditStatus(status: CurrentStatus | string): boolean {
   return AUDIT_STATUSES.includes(status as CurrentStatus);
 }
 
+/**
+ * Statuses the app's own logic keys off. An admin can add to the status list
+ * and rename or remove anything they added, but these cannot be renamed or
+ * removed: the audit reminder, the sub-issue requirement and the active/closed
+ * split all match on the exact wording, so changing one would quietly stop that
+ * behaviour rather than fail loudly.
+ */
+export const PROTECTED_STATUS_REASONS: Record<string, string> = {
+  'Resolved by RAC': 'Closes the disruption and requires a sub-issue',
+  'Resolved by OEM': 'Closes the disruption and requires a sub-issue',
+  'Resolved by CC': 'Closes the disruption and requires a sub-issue',
+  'Resolved by Dealer': 'Requires a sub-issue',
+  Disable: 'Closes the disruption',
+  'Audit in Process': 'Starts the 2.5-hour audit reminder',
+};
+
+export const PROTECTED_STATUSES: string[] = Object.keys(PROTECTED_STATUS_REASONS);
+
+export function isProtectedStatus(status: string): boolean {
+  return PROTECTED_STATUSES.includes(status);
+}
+
 export const INACTIVE_STATUSES: CurrentStatus[] = [
   'Resolved by RAC',
   'Resolved by OEM',
@@ -283,7 +305,27 @@ export interface AppConfig {
   columnMapping: ColumnMapping;
   ccPocOptions: string[];
   issueMaster: Record<string, string[]>;
+  /**
+   * The Current Status dropdown, editable by an admin. Absent on configurations
+   * saved before it existed, which is why readers go through
+   * `statusOptionsFrom`.
+   */
+  statusOptions?: string[];
   autoSyncEnabled: boolean;
   /** The three feeds, each with its own sheet, tab and on/off switch. */
   sources: SheetSources;
+}
+
+/**
+ * The status list to show. Falls back to the built-in list for configurations
+ * saved before the list became editable, and always keeps the protected
+ * statuses present even if a stored list somehow lost one.
+ */
+export function statusOptionsFrom(config?: { statusOptions?: string[] }): string[] {
+  const stored = (config?.statusOptions ?? []).map((s) => s.trim()).filter(Boolean);
+  const list = stored.length > 0 ? [...stored] : [...CURRENT_STATUS_OPTIONS];
+  for (const required of PROTECTED_STATUSES) {
+    if (!list.includes(required)) list.push(required);
+  }
+  return list;
 }

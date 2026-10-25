@@ -3,7 +3,7 @@
  * Production-ready operational incident tracking, master data sync, and active reporting.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { setSessionToken } from './services/session';
 import { AppTab, Header } from './components/Header';
 import { LiveTrackerForm } from './components/LiveTrackerForm';
@@ -27,6 +27,7 @@ import {
   SHEET_SOURCE_LABELS,
   SyncStatus,
   SyncStatuses,
+  statusOptionsFrom,
 } from './types';
 import {
   fetchConfig,
@@ -227,6 +228,8 @@ export default function App() {
   const sessionUser: SessionUser | null = auth?.user ?? null;
   const currentUser = sessionUser?.name ?? '';
   const isOwner = sessionUser?.role === 'owner';
+  // One place decides the list, so the form and the modal cannot disagree.
+  const configuredStatusOptions = useMemo(() => statusOptionsFrom(config), [config]);
 
   /** Saves a corrected display name; it is what shows up in the CC POC column. */
   const handleSaveProfile = async (name: string, contact: string) => {
@@ -500,6 +503,7 @@ export default function App() {
             <LiveTrackerForm
               outlets={outlets}
               issueMaster={config.issueMaster}
+              statusOptions={configuredStatusOptions}
               currentUser={currentUser}
               currentUserEmail={sessionUser?.email ?? ''}
               existingDisruptions={disruptions}
@@ -558,6 +562,7 @@ export default function App() {
           disruption={selectedDisruptionForUpdate}
           currentUser={currentUser}
           issueMaster={config.issueMaster}
+          statusOptions={configuredStatusOptions}
           onClose={() => setSelectedDisruptionForUpdate(null)}
           onSuccess={(updated) => {
             handleDisruptionUpdated(updated);

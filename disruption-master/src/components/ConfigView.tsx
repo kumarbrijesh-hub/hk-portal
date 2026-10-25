@@ -26,6 +26,9 @@ import {
   SheetSources,
   SyncStatus,
   SyncStatuses,
+  isProtectedStatus,
+  PROTECTED_STATUS_REASONS,
+  statusOptionsFrom,
 } from '../types';
 import { formatSpecFor, templateCsvFor } from '../data/sheetFormats';
 import { SheetFormatHelp } from './SheetFormatHelp';
@@ -81,6 +84,9 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
   const [syncIntervalMinutes, setSyncIntervalMinutes] = useState(config.syncIntervalMinutes || 5);
   const [columnMapping, setColumnMapping] = useState({ ...config.columnMapping });
   const [issueMaster, setIssueMaster] = useState<Record<string, string[]>>({ ...config.issueMaster });
+  const [statusOptions, setStatusOptions] = useState<string[]>(statusOptionsFrom(config));
+  const [newStatus, setNewStatus] = useState('');
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [newIssueCategory, setNewIssueCategory] = useState('');
   const [newSubIssueInput, setNewSubIssueInput] = useState('');
   const [selectedIssueCategory, setSelectedIssueCategory] = useState<string>(
@@ -95,6 +101,32 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [csvUploadError, setCsvUploadError] = useState<string | null>(null);
   const [csvUploadSuccess, setCsvUploadSuccess] = useState<string | null>(null);
+
+  const addStatus = () => {
+    const clean = newStatus.trim();
+    if (!clean) return;
+    if (statusOptions.some((v) => v.toLowerCase() === clean.toLowerCase())) {
+      setStatusError(`"${clean}" is already in the list.`);
+      return;
+    }
+    setStatusOptions([...statusOptions, clean]);
+    setNewStatus('');
+    setStatusError(null);
+  };
+
+  const renameStatus = (index: number, value: string) => {
+    const next = [...statusOptions];
+    next[index] = value;
+    setStatusOptions(next);
+    setStatusError(null);
+  };
+
+  /** Protected statuses carry behaviour, so only the rest can be removed. */
+  const removeStatus = (index: number) => {
+    if (isProtectedStatus(statusOptions[index])) return;
+    setStatusOptions(statusOptions.filter((_, i) => i !== index));
+    setStatusError(null);
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -111,6 +143,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
         syncIntervalMinutes: Number(syncIntervalMinutes) || 5,
         columnMapping,
         issueMaster,
+        statusOptions,
       };
 
       await onSaveConfig(updatedConfig);
@@ -481,8 +514,97 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
 
         {/* Section 4: Issue & Sub-Issue Master */}
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4">
+          <div className="border-b border-slate-100 pb-3 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-bold text-slate-900">4. Current Status Options</h3>
+            <span className="text-xs text-slate-500">
+              The dropdown on the create form and on every live update
+            </span>
+          </div>
+
+          {!isOwner && (
+            <p className="text-[11px] text-slate-500">Only the admin account can change this list.</p>
+          )}
+
+          <div className="space-y-1.5">
+            {statusOptions.map((status, index) => {
+              const locked = isProtectedStatus(status);
+              return (
+                <div key={`${status}-${index}`} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={status}
+                    onChange={(e) => renameStatus(index, e.target.value)}
+                    disabled={!isOwner || locked}
+                    aria-label={`Status ${index + 1}`}
+                    className={`flex-1 px-2.5 py-1.5 text-xs rounded-lg border ${
+                      locked
+                        ? 'border-slate-200 bg-slate-50 text-slate-600'
+                        : 'border-slate-300 bg-white text-slate-800'
+                    } disabled:cursor-not-allowed`}
+                  />
+                  {locked ? (
+                    <span
+                      className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 whitespace-nowrap"
+                      title={PROTECTED_STATUS_REASONS[status]}
+                    >
+                      <Lock className="w-3 h-3" />
+                      {PROTECTED_STATUS_REASONS[status]}
+                    </span>
+                  ) : (
+                    isOwner && (
+                      <button
+                        type="button"
+                        onClick={() => removeStatus(index)}
+                        className="p-1.5 rounded-md border border-slate-300 text-slate-500 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300"
+                        title="Remove this status"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {isOwner && (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={newStatus}
+                onChange={(e) => setNewStatus(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addStatus();
+                  }
+                }}
+                placeholder="Add a status, e.g. Awaiting Spare Part"
+                className="flex-1 px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white"
+              />
+              <button
+                type="button"
+                onClick={addStatus}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-900 text-white hover:bg-slate-800"
+              >
+                Add
+              </button>
+            </div>
+          )}
+
+          {statusError && <p className="text-[11px] text-rose-700">{statusError}</p>}
+
+          <p className="text-[11px] text-slate-500">
+            The locked rows drive app behaviour - the audit reminder, the sub-issue requirement and whether
+            a disruption counts as closed - so they can neither be renamed nor removed. Anything you add
+            behaves as an ordinary open status. Changing the list does not touch records already saved
+            against an old status.
+          </p>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4">
           <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-900">4. Issue &amp; Sub-Issue Taxonomy Master</h3>
+            <h3 className="text-sm font-bold text-slate-900">5. Issue &amp; Sub-Issue Taxonomy Master</h3>
             <span className="text-xs text-slate-500">
               {isOwner
                 ? 'Add, rename or remove entries, then press Save'
@@ -702,7 +824,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
           <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <Upload className="w-4 h-4 text-slate-600" />
-              5. Direct Master Data CSV Import / Backup
+              6. Direct Master Data CSV Import / Backup
             </h3>
             <span className="text-xs text-slate-500">
               Upload outlet records directly if Google Sheets is not yet provisioned

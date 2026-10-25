@@ -28,7 +28,7 @@ import {
 import { formatDateTimeIST, formatToIST, getCurrentISTDate, hoursBetween } from './src/utils/dateUtils';
 import { deriveIssues, readIssues, readSubIssues } from './src/utils/issueTaxonomy';
 import { formatHoursMinutes } from './src/utils/auditHold';
-import { isAuditStatus } from './src/types';
+import { CURRENT_STATUS_OPTIONS, isAuditStatus, PROTECTED_STATUSES } from './src/types';
 
 /**
  * Keeps `auditStartedAt` in step with the status: stamped when a record goes on
@@ -256,6 +256,17 @@ function migrateConfig(stored: Partial<AppConfig>): AppConfig {
   // Keep the legacy pair pointing at the store master so older clients agree.
   merged.googleSheetUrl = merged.sources.outletMaster.url;
   merged.sheetTabName = merged.sources.outletMaster.tabName;
+
+  // The status list is admin-editable, so normalise whatever was stored: drop
+  // blanks and duplicates, and re-add any protected status that went missing,
+  // since the audit reminder and the active/closed split match on those exact
+  // words and would otherwise go quiet.
+  const statusList = (merged.statusOptions ?? []).map((v) => String(v).trim()).filter(Boolean);
+  const deduped = Array.from(new Set(statusList.length > 0 ? statusList : CURRENT_STATUS_OPTIONS));
+  for (const required of PROTECTED_STATUSES) {
+    if (!deduped.includes(required)) deduped.push(required);
+  }
+  merged.statusOptions = deduped;
 
   return merged;
 }

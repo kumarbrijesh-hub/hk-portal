@@ -20,7 +20,6 @@ import {
 import {
   BucketType,
   CurrentStatus,
-  CURRENT_STATUS_OPTIONS,
   OutletMaster,
   RESOLVED_STATUSES_REQUIRING_ISSUE,
   Disruption,
@@ -32,6 +31,8 @@ import { SubIssuePicker } from './SubIssuePicker';
 interface LiveTrackerFormProps {
   outlets: OutletMaster[];
   issueMaster: Record<string, string[]>;
+  /** The Current Status dropdown, as configured by an admin. */
+  statusOptions: string[];
   /** Display name of the signed-in operator; stamped as the CC POC. */
   currentUser: string;
   currentUserEmail: string;
@@ -43,6 +44,7 @@ interface LiveTrackerFormProps {
 export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
   outlets,
   issueMaster,
+  statusOptions,
   currentUser,
   currentUserEmail,
   existingDisruptions,
@@ -850,7 +852,7 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
                   className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-red-500 font-medium"
                   required
                 >
-                  {CURRENT_STATUS_OPTIONS.map((status) => (
+                  {statusOptions.map((status) => (
                     <option key={status} value={status}>
                       {status}
                     </option>

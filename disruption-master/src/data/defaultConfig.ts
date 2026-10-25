@@ -1,4 +1,4 @@
-import { AppConfig, OutletMaster, SheetSources } from '../types';
+import { AppConfig, CURRENT_STATUS_OPTIONS, OutletMaster, SheetSources } from '../types';
 
 export const DEFAULT_CC_POCS: string[] = [
   'Palak',
@@ -92,6 +92,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   syncIntervalMinutes: 5,
   columnMapping: DEFAULT_COLUMN_MAPPING,
   ccPocOptions: DEFAULT_CC_POCS,
+  statusOptions: [...CURRENT_STATUS_OPTIONS],
   issueMaster: DEFAULT_ISSUE_MASTER,
   autoSyncEnabled: true,
   sources: DEFAULT_SHEET_SOURCES,
