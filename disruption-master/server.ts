@@ -29,6 +29,7 @@ import { formatDateTimeIST, formatToIST, getCurrentISTDate, hoursBetween } from 
 import { deriveIssues, readIssues, readSubIssues } from './src/utils/issueTaxonomy';
 import { formatHoursMinutes } from './src/utils/auditHold';
 import { cumulativeLiveUpdate } from './src/utils/liveUpdateLog';
+import { PostgresStore } from './src/server/postgresStore';
 import {
   CURRENT_STATUS_OPTIONS,
   isAuditStatus,
@@ -61,6 +62,9 @@ const HOST = process.env.HOST ?? '0.0.0.0';
 // DATA_DIR is overridable so the JSON store can live on a mounted volume.
 const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'store.json');
+// Set DATABASE_URL to make Postgres the system of record. Unset, the JSON file
+// on the volume is all there is, which is how a local run works.
+const DATABASE_URL = process.env.DATABASE_URL ?? '';
 
 // --- Access control -------------------------------------------------------
 // Sign-in is always on: the console needs an identity so it can stamp the CC
@@ -390,6 +394,12 @@ function backfillDerivedTimings(): number {
   return touched;
 }
 
+/**
+ * Postgres, once DATABASE_URL is set. Null on a local run, and null until the
+ * connection is up, so every write path has to tolerate its absence.
+ */
+let pgStore: PostgresStore | null = null;
+
 function saveDb() {
   try {
     const json = JSON.stringify(db, null, 2);
@@ -400,6 +410,67 @@ function saveDb() {
     fs.renameSync(DB_TMP_FILE, DB_FILE);
   } catch (err) {
     console.error('Error persisting database to disk:', err);
+  }
+  // The file write above stays even with Postgres configured. It costs a few
+  // milliseconds and it is what lets the pod keep serving, and keep its data,
+  // through a database outage.
+  pgStore?.markDirty();
+}
+
+/**
+ * Brings Postgres up and decides which copy of the data wins.
+ *
+ * The file has already been read into `db` by this point. If Postgres has rows
+ * it is normally the newer of the two, but a flush lost to a crash can leave it
+ * one write behind, so whichever side holds more disruptions is taken. That
+ * rule is deliberately crude: it cannot silently discard records, which is the
+ * only failure here that would not be recoverable.
+ */
+async function initPersistence(): Promise<void> {
+  if (!DATABASE_URL) {
+    console.log('[Store] DATABASE_URL not set - using the JSON file on the volume.');
+    return;
+  }
+
+  const store = new PostgresStore(DATABASE_URL);
+  try {
+    await store.init();
+    const remote = await store.read();
+
+    if (!remote) {
+      console.log(
+        `[Store] Postgres is empty - seeding it from the file (${db.disruptions.length} disruptions, ${db.outlets.length} outlets).`
+      );
+      await store.write(db);
+    } else {
+      const remoteCount = remote.disruptions?.length ?? 0;
+      const localCount = db.disruptions.length;
+      if (remoteCount >= localCount) {
+        if (remote.users) db.users = remote.users as typeof db.users;
+        if (remote.outlets) db.outlets = remote.outlets;
+        if (remote.disruptions) db.disruptions = remote.disruptions;
+        if (remote.config) db.config = migrateConfig(remote.config);
+        if (remote.syncStatuses) db.syncStatuses = { ...db.syncStatuses, ...remote.syncStatuses };
+        console.log(`[Store] Loaded ${remoteCount} disruptions from Postgres.`);
+      } else {
+        console.warn(
+          `[Store] File has ${localCount} disruptions against Postgres' ${remoteCount} - keeping the file and rewriting Postgres from it.`
+        );
+        await store.write(db);
+      }
+    }
+
+    store.attach(() => db);
+    pgStore = store;
+    console.log('[Store] Postgres is the system of record; the JSON file is the local fallback.');
+  } catch (err) {
+    // Starting without the database is better than not starting: the volume
+    // still holds every record and the pod stays usable.
+    console.error(
+      '[Store] Could not reach Postgres, carrying on with the JSON file only:',
+      err instanceof Error ? err.message : err
+    );
+    await store.close().catch(() => undefined);
   }
 }
 
@@ -1123,6 +1194,9 @@ function restartAutoSync() {
 }
 
 async function startServer() {
+  // Before any route can read or write, settle where the data lives.
+  await initPersistence();
+
   const app = express();
   // One ingress hop sits in front of the pod. Without this every request looks
   // like it came from the proxy, so a per-client throttle would be one shared
@@ -1153,7 +1227,14 @@ async function startServer() {
 
   // Health check
   app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', time: new Date().toISOString() });
+    res.json({
+      status: 'ok',
+      time: new Date().toISOString(),
+      // Without this a database that fell over is invisible until someone
+      // notices reports going stale.
+      store: pgStore ? { backend: 'postgres', ...pgStore.status() } : { backend: 'file' },
+      records: db.disruptions.length,
+    });
   });
 
   // --- Auth ---

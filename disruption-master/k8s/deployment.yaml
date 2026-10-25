@@ -40,6 +40,19 @@ spec:
               value: "/data"
             - name: TZ
               value: "Asia/Kolkata"
+            # Postgres is the system of record. The JSON file under DATA_DIR
+            # stays as the local fallback, so the console keeps serving if the
+            # database is down; boot reconciles the two.
+            # optional: a missing Secret leaves DATABASE_URL unset and the app
+            # runs on the file store. Without this the pod would refuse to
+            # start at all, which is a worse failure than not using Postgres -
+            # /api/health reports which backend is actually in use.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: blinkit-disruption-db
+                  key: url
+                  optional: true
           volumeMounts:
             - name: data
               mountPath: /data
