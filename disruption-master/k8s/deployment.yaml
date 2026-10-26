@@ -60,12 +60,18 @@ spec:
               # there is no kubectl on hand to cat the file. So it is printed
               # once, on the boot that creates it, and never again. Delete
               # /dbdata/secret/app-password to have a new one issued.
+              # Keep runs of three or more dashes, and colons in echoed
+              # text, out of this script. The apply step rejected an earlier
+              # version of it with a YAML parse error that the manifests do
+              # not reproduce locally, and those are the two constructs its
+              # message points at. Cause unconfirmed; this avoids both.
               if [ ! -s /dbdata/secret/app-password ]; then
                 tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 20 > /dbdata/secret/app-password
-                echo "-----------------------------------------------------"
-                echo "NEW CONSOLE SIGN-IN PASSWORD: $(cat /dbdata/secret/app-password)"
-                echo "Write it down now - this line is not printed again."
-                echo "-----------------------------------------------------"
+                echo "===================================================="
+                echo "NEW CONSOLE SIGN-IN PASSWORD BELOW"
+                echo "   $(cat /dbdata/secret/app-password)"
+                echo "Write it down now, this line is not printed again."
+                echo "===================================================="
               else
                 echo "console sign-in password already set (not shown)"
               fi
