@@ -1,17 +1,22 @@
-# Postgres for the Disruption Management System.
+# Storage for the Disruption Management System's Postgres.
 #
-# The platform has no managed database, so one runs here in the namespace. The
-# app treats it as the system of record and keeps writing its JSON file to the
-# app volume as a local fallback, which is what lets the console stay up - and
-# keep its data - while this is down or restarting.
+# The database itself is not a separate workload: it runs as a localhost-only
+# sidecar next to the app, in k8s/deployment.yaml. Only the volumes live here.
 #
-# The password is NOT in this file. It lives in a Secret named
-# blinkit-disruption-db, created separately, and is referenced below. Nothing
-# in the repository should ever carry the literal.
+# Why a sidecar and not a StatefulSet with a Service:
+#  - Nothing outside the pod ever needs to reach the database, and Postgres is
+#    started with listen_addresses=127.0.0.1, so it is not on the pod network at
+#    all. A Service would be an attack surface with no user.
+#  - The password is generated inside the cluster by an init container and kept
+#    on this volume. It is never in this repository, never in a manifest, and
+#    never passes through a tool call - so there is also no Secret to create by
+#    hand, and no step for an operator to get wrong.
+#
+# There is no password in this file, and there must never be one.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: blinkit-disruption-pgdata
+  name: blinkit-disruption-dbdata
 spec:
   accessModes:
     - ReadWriteOnce
@@ -24,151 +29,10 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: blinkit-disruption-pgbackup
+  name: blinkit-disruption-dbbackup
 spec:
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 5Gi
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: blinkit-disruption-db
-spec:
-  serviceName: blinkit-disruption-db
-  replicas: 1
-  selector:
-    matchLabels:
-      app: blinkit-disruption-db
-  template:
-    metadata:
-      labels:
-        app: blinkit-disruption-db
-    spec:
-      containers:
-        - name: postgres
-          image: postgres:16-alpine
-          ports:
-            - containerPort: 5432
-              name: postgres
-          env:
-            - name: POSTGRES_USER
-              value: "dms"
-            - name: POSTGRES_DB
-              value: "dms"
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: blinkit-disruption-db
-                  key: password
-            # initdb refuses a directory that is not empty, and a fresh volume
-            # can arrive with lost+found on it, so data goes in a subdirectory.
-            - name: PGDATA
-              value: /var/lib/postgresql/data/pgdata
-            - name: TZ
-              value: "Asia/Kolkata"
-          volumeMounts:
-            - name: pgdata
-              mountPath: /var/lib/postgresql/data
-          readinessProbe:
-            exec:
-              command: ["pg_isready", "-U", "dms", "-d", "dms"]
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 5
-          livenessProbe:
-            exec:
-              command: ["pg_isready", "-U", "dms", "-d", "dms"]
-            # A first start has to run initdb, so the liveness check waits out
-            # more than the readiness one or the pod restarts mid-initialisation.
-            initialDelaySeconds: 45
-            periodSeconds: 20
-            timeoutSeconds: 5
-            failureThreshold: 6
-          resources:
-            requests:
-              cpu: "100m"
-              memory: "256Mi"
-            limits:
-              cpu: "1"
-              memory: "1Gi"
-      volumes:
-        - name: pgdata
-          persistentVolumeClaim:
-            claimName: blinkit-disruption-pgdata
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: blinkit-disruption-db
-spec:
-  selector:
-    app: blinkit-disruption-db
-  ports:
-    - port: 5432
-      targetPort: 5432
----
-# Nightly dump. Self-hosting means nobody else is taking backups, and a PVC is
-# one bad day away from being the only copy.
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: blinkit-disruption-db-backup
-spec:
-  # 20:47 UTC is 02:17 IST - off the hour, so it does not queue behind every
-  # other job in the cluster that runs at midnight.
-  schedule: "47 20 * * *"
-  concurrencyPolicy: Forbid
-  successfulJobsHistoryLimit: 3
-  failedJobsHistoryLimit: 3
-  jobTemplate:
-    spec:
-      backoffLimit: 2
-      template:
-        spec:
-          restartPolicy: OnFailure
-          containers:
-            - name: pg-dump
-              image: postgres:16-alpine
-              env:
-                - name: PGPASSWORD
-                  valueFrom:
-                    secretKeyRef:
-                      name: blinkit-disruption-db
-                      key: password
-                - name: TZ
-                  value: "Asia/Kolkata"
-              command:
-                - /bin/sh
-                - -c
-                - |
-                  set -eu
-                  stamp=$(date +%Y%m%d-%H%M)
-                  out=/backup/dms-${stamp}.sql.gz
-                  # Write to a partial name and move it into place, so a dump cut
-                  # short by an eviction never looks like a usable backup.
-                  pg_dump -h blinkit-disruption-db -U dms -d dms | gzip > "${out}.partial"
-                  mv "${out}.partial" "$out"
-                  echo "wrote $out ($(stat -c %s "$out") bytes)"
-                  # Keep a fortnight. Older than that and the JSON fallback on the
-                  # app volume is the more useful artefact anyway.
-                  ls -1t /backup/dms-*.sql.gz 2>/dev/null | tail -n +15 | while read -r old; do
-                    echo "pruning $old"
-                    rm -f "$old"
-                  done
-              volumeMounts:
-                - name: backup
-                  mountPath: /backup
-              resources:
-                requests:
-                  cpu: "50m"
-                  memory: "128Mi"
-                limits:
-                  cpu: "500m"
-                  memory: "512Mi"
-          volumes:
-            - name: backup
-              persistentVolumeClaim:
-                claimName: blinkit-disruption-pgbackup
+      storage: 2Gi

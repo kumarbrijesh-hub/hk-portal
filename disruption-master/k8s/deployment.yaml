@@ -16,7 +16,9 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    # RWO volume: the old pod must release the claim before the new one mounts it.
+    # RWO volumes: the old pod must release the claims before the new one mounts
+    # them. With Postgres in the same pod this is also what keeps two instances
+    # off one data directory.
     type: Recreate
   selector:
     matchLabels:
@@ -26,6 +28,48 @@ spec:
       labels:
         app: blinkit-disruption
     spec:
+      initContainers:
+        # Generates the database password once, on first boot, and keeps it on
+        # the database volume so every later restart reuses the same one. The
+        # literal never leaves the cluster: not into git, not into a manifest,
+        # not into a tool call.
+        - name: init-db-password
+          image: postgres:16-alpine
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              mkdir -p /dbdata/secret
+              if [ ! -s /dbdata/secret/password ]; then
+                # Alphanumeric only, so the string needs no percent-escaping
+                # when it is pasted into a connection URL.
+                tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 40 > /dbdata/secret/password
+                echo "generated a new database password"
+              else
+                echo "reusing the password already on the volume"
+              fi
+              # The app cannot take a connection string from a file through an
+              # env var, so the whole URL is written out here and the app reads
+              # it via DATABASE_URL_FILE.
+              printf 'postgresql://dms:%s@127.0.0.1:5432/dms' "$(cat /dbdata/secret/password)" \
+                > /dbdata/secret/url
+              chmod 600 /dbdata/secret/password /dbdata/secret/url
+              chmod 700 /dbdata/secret
+              # The postgres image drops to uid 70, and it has to be able to
+              # read the password file it is pointed at.
+              chown -R 70:70 /dbdata/secret
+              echo "database credentials are in place"
+          volumeMounts:
+            - name: dbdata
+              mountPath: /dbdata
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "32Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
       containers:
         - name: blinkit-disruption
           image: 501578625374.dkr.ecr.ap-south-1.amazonaws.com/chef/blinkit-apps-kumarbrijesh/blinkit-disruption/blinkit-disruption
@@ -41,21 +85,20 @@ spec:
             - name: TZ
               value: "Asia/Kolkata"
             # Postgres is the system of record. The JSON file under DATA_DIR
-            # stays as the local fallback, so the console keeps serving if the
-            # database is down; boot reconciles the two.
-            # optional: a missing Secret leaves DATABASE_URL unset and the app
-            # runs on the file store. Without this the pod would refuse to
-            # start at all, which is a worse failure than not using Postgres -
-            # /api/health reports which backend is actually in use.
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: blinkit-disruption-db
-                  key: url
-                  optional: true
+            # stays as the local fallback, so the console keeps serving - and
+            # keeps its data - if the database is down; boot reconciles the two
+            # and /api/health reports which backend is actually in use.
+            - name: DATABASE_URL_FILE
+              value: "/dbdata/secret/url"
           volumeMounts:
             - name: data
               mountPath: /data
+            # Read-only, and the whole volume rather than a subPath: a subPath
+            # is resolved when the volume is mounted, and secret/ does not exist
+            # until the init container has run.
+            - name: dbdata
+              mountPath: /dbdata
+              readOnly: true
           resources:
             requests:
               cpu: "200m"
@@ -63,10 +106,116 @@ spec:
             limits:
               cpu: "1"
               memory: "1Gi"
+
+        # Postgres, reachable only from inside this pod.
+        - name: db
+          image: postgres:16-alpine
+          # listen_addresses=127.0.0.1 keeps the database off the pod network:
+          # the only thing that can connect is a container in this pod.
+          args: ["postgres", "-c", "listen_addresses=127.0.0.1"]
+          env:
+            - name: POSTGRES_USER
+              value: "dms"
+            - name: POSTGRES_DB
+              value: "dms"
+            - name: POSTGRES_PASSWORD_FILE
+              value: "/dbdata/secret/password"
+            # initdb refuses a directory that is not empty, and a fresh volume
+            # can arrive with lost+found on it, so data goes in a subdirectory.
+            - name: PGDATA
+              value: "/dbdata/pgdata"
+            - name: TZ
+              value: "Asia/Kolkata"
+          volumeMounts:
+            - name: dbdata
+              mountPath: /dbdata
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-U", "dms", "-d", "dms"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-U", "dms", "-d", "dms"]
+            # A first start has to run initdb, so the liveness check waits out
+            # more than the readiness one or the pod restarts mid-initialisation.
+            initialDelaySeconds: 45
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+
+        # Nightly dump. Self-hosting means nobody else is taking backups, and a
+        # PVC is one bad day away from being the only copy. This runs in the pod
+        # rather than as a CronJob because the database only listens on
+        # localhost, which no other pod can reach.
+        - name: db-backup
+          image: postgres:16-alpine
+          env:
+            - name: TZ
+              value: "Asia/Kolkata"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -u
+              # 02:17 IST, off the hour, so it does not land in the middle of
+              # anything and is easy to recognise in a listing.
+              while true; do
+                if [ "$(date +%H:%M)" = "02:17" ]; then
+                  stamp=$(date +%Y%m%d-%H%M)
+                  out=/backup/dms-${stamp}.sql.gz
+                  export PGPASSWORD="$(cat /dbdata/secret/password)"
+                  # Write to a partial name and move it into place, so a dump
+                  # cut short by an eviction never looks like a usable backup.
+                  if pg_dump -h 127.0.0.1 -U dms -d dms | gzip > "${out}.partial"; then
+                    mv "${out}.partial" "$out"
+                    echo "wrote $out ($(stat -c %s "$out") bytes)"
+                  else
+                    echo "dump failed; leaving ${out}.partial for inspection"
+                  fi
+                  unset PGPASSWORD
+                  # Keep a fortnight. Older than that and the JSON fallback on
+                  # the app volume is the more useful artefact anyway.
+                  ls -1t /backup/dms-*.sql.gz 2>/dev/null | tail -n +15 | while read -r old; do
+                    echo "pruning $old"
+                    rm -f "$old"
+                  done
+                  # Past the minute, so one night cannot produce two dumps.
+                  sleep 90
+                fi
+                sleep 30
+              done
+          volumeMounts:
+            - name: dbdata
+              mountPath: /dbdata
+              readOnly: true
+            - name: backup
+              mountPath: /backup
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: blinkit-disruption-data
+        - name: dbdata
+          persistentVolumeClaim:
+            claimName: blinkit-disruption-dbdata
+        - name: backup
+          persistentVolumeClaim:
+            claimName: blinkit-disruption-dbbackup
 ---
 apiVersion: v1
 kind: Service

@@ -78,41 +78,46 @@ dropdown in the header is still self-selected, so the audit trail records who
 ## Where the data lives
 
 Postgres is the system of record; the JSON file on the app volume is the local
-fallback. `DATABASE_URL` is what switches the app over — unset, the file is all
-there is, which is how a local run works. `GET /api/health` reports which
-backend is actually in use:
+fallback. `GET /api/health` reports which backend is actually in use:
 
 ```json
 { "store": { "backend": "postgres", "connected": true, "pendingWrite": false }, "records": 412 }
 ```
 
-`k8s/postgres.yaml` carries the database: a StatefulSet on its own 5Gi claim, a
-ClusterIP Service, and a nightly `pg_dump` CronJob writing gzipped dumps to a
-second claim (14 kept). The platform has no managed database, so backups are
-ours to take — nothing else is taking them.
+Postgres runs as a sidecar in the same pod as the app, started with
+`listen_addresses=127.0.0.1`. Nothing outside the pod can reach it, and there is
+no Service for it — the only clients are the other containers in that pod. The
+volumes it needs are in `k8s/postgres.yaml`: 5Gi for the data, a second 2Gi claim
+for the nightly dumps. The platform has no managed database, so backups are ours
+to take — nothing else is taking them.
 
-### The password is not in the repository
+The dump runs in a third container in the same pod rather than as a CronJob,
+because a CronJob pod cannot reach a database that only listens on localhost. It
+wakes at 02:17 IST, writes `dms-<stamp>.sql.gz` to the backup claim via a
+`.partial` name it then renames, and keeps a fortnight.
 
-Both the database and the app read it from a Secret named
-`blinkit-disruption-db`. Create it **before** applying the manifests, with a
-password you generate yourself:
+### The password is not in the repository, and not in a Secret either
 
-```bash
-PGPW=$(openssl rand -base64 24 | tr -d '/+=' | head -c 24)
-kubectl create secret generic blinkit-disruption-db \
-  --from-literal=password="$PGPW" \
-  --from-literal=url="postgresql://dms:${PGPW}@blinkit-disruption-db:5432/dms"
-unset PGPW
-```
+An init container, `init-db-password`, generates a 40-character alphanumeric
+password on first boot and writes it to the database volume:
 
-Both keys hold the same password: `password` is what Postgres initialises with,
-`url` is the connection string the app reads. They must agree — rotate them
-together or the app silently falls back to the file store.
+- `/dbdata/secret/password` — what Postgres initialises with
+  (`POSTGRES_PASSWORD_FILE`)
+- `/dbdata/secret/url` — the connection string the app reads
+  (`DATABASE_URL_FILE`)
 
-The app's `DATABASE_URL` reference is marked `optional`, so a missing Secret
-leaves the console running on the file store rather than refusing to start. That
-is deliberate, and it means a forgotten Secret shows up as `"backend": "file"`
-on `/api/health` rather than as an outage.
+Both are mode 600 and owned by uid 70, the postgres user in the image. The
+container is idempotent: if the password file already exists it is reused, so a
+restart does not lock the app out of its own data.
+
+This means there is no Secret to create and no manual step before applying the
+manifests. The literal never exists outside the cluster — not in git, not in a
+manifest, not in a terminal history. `DATABASE_URL` is still honoured if it is
+set directly, which is how a local run points at a development database.
+
+If `DATABASE_URL_FILE` cannot be read, the app logs it and carries on with the
+file store rather than refusing to start — a forgotten volume shows up as
+`"backend": "file"` on `/api/health`, not as an outage.
 
 ### First boot and migration
 
@@ -129,9 +134,21 @@ the only failure here that would not be recoverable.
 
 ### Restoring a dump
 
+Everything runs in one pod, so the restore happens inside it. `POD` is the app
+pod's name from `kubectl get pods`:
+
 ```bash
-kubectl exec -it blinkit-disruption-db-0 -- psql -U dms -d dms -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
-gunzip -c dms-<stamp>.sql.gz | kubectl exec -i blinkit-disruption-db-0 -- psql -U dms -d dms
+kubectl exec -it "$POD" -c db -- sh -c \
+  'PGPASSWORD=$(cat /dbdata/secret/password) psql -h 127.0.0.1 -U dms -d dms \
+     -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"'
+
+kubectl exec -it "$POD" -c db -- sh -c \
+  'gunzip -c /backup/dms-<stamp>.sql.gz | PGPASSWORD=$(cat /dbdata/secret/password) \
+     psql -h 127.0.0.1 -U dms -d dms'
 ```
 
-Then restart the app pod so it reloads from the restored database.
+Then restart the pod so the app reloads from the restored database. Mind the
+first-boot rule above: if the JSON file on the app volume still holds *more*
+disruptions than the restored dump, the file wins and the restore is overwritten.
+Clear `/data/store.json` in the same pod first if the dump is meant to be
+authoritative.

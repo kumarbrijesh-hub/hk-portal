@@ -64,7 +64,28 @@ const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'store.json');
 // Set DATABASE_URL to make Postgres the system of record. Unset, the JSON file
 // on the volume is all there is, which is how a local run works.
-const DATABASE_URL = process.env.DATABASE_URL ?? '';
+//
+// DATABASE_URL_FILE is the deployed form. The password is generated inside the
+// cluster by an init container and written to the database volume, so it never
+// exists in this repository, in a tool call, or in anyone's shell history - and
+// an env var cannot be sourced from a file, hence the second variable.
+function resolveDatabaseUrl(): string {
+  const direct = (process.env.DATABASE_URL ?? '').trim();
+  if (direct) return direct;
+
+  const file = (process.env.DATABASE_URL_FILE ?? '').trim();
+  if (!file) return '';
+  try {
+    return fs.readFileSync(file, 'utf-8').trim();
+  } catch (err) {
+    // Not fatal: the app falls back to the JSON file and says so on /api/health,
+    // which beats refusing to start because a sidecar is a few seconds behind.
+    console.error(`[Store] Could not read DATABASE_URL_FILE (${file}):`, err);
+    return '';
+  }
+}
+
+const DATABASE_URL = resolveDatabaseUrl();
 
 // --- Access control -------------------------------------------------------
 // Sign-in is always on: the console needs an identity so it can stamp the CC
@@ -428,7 +449,9 @@ function saveDb() {
  */
 async function initPersistence(): Promise<void> {
   if (!DATABASE_URL) {
-    console.log('[Store] DATABASE_URL not set - using the JSON file on the volume.');
+    console.log(
+      '[Store] No DATABASE_URL/DATABASE_URL_FILE - using the JSON file on the volume.'
+    );
     return;
   }
 
