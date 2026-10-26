@@ -54,7 +54,22 @@ spec:
               # it via DATABASE_URL_FILE.
               printf 'postgresql://dms:%s@127.0.0.1:5432/dms' "$(cat /dbdata/secret/password)" \
                 > /dbdata/secret/url
-              chmod 600 /dbdata/secret/password /dbdata/secret/url
+              # The sign-in password for the console itself. Generated here for
+              # the same reason as the database one, with one difference: a
+              # shared password is no use unless somebody can read it, and
+              # there is no kubectl on hand to cat the file. So it is printed
+              # once, on the boot that creates it, and never again. Delete
+              # /dbdata/secret/app-password to have a new one issued.
+              if [ ! -s /dbdata/secret/app-password ]; then
+                tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 20 > /dbdata/secret/app-password
+                echo "-----------------------------------------------------"
+                echo "NEW CONSOLE SIGN-IN PASSWORD: $(cat /dbdata/secret/app-password)"
+                echo "Write it down now - this line is not printed again."
+                echo "-----------------------------------------------------"
+              else
+                echo "console sign-in password already set (not shown)"
+              fi
+              chmod 600 /dbdata/secret/password /dbdata/secret/url /dbdata/secret/app-password
               chmod 700 /dbdata/secret
               # The postgres image drops to uid 70, and it has to be able to
               # read the password file it is pointed at.
@@ -90,6 +105,11 @@ spec:
             # and /api/health reports which backend is actually in use.
             - name: DATABASE_URL_FILE
               value: "/dbdata/secret/url"
+            # Sign-in password, generated in-cluster by the init container.
+            # Without it the console takes any address on an allowed domain
+            # with no password at all.
+            - name: APP_PASSWORD_FILE
+              value: "/dbdata/secret/app-password"
           volumeMounts:
             - name: data
               mountPath: /data

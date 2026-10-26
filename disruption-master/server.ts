@@ -102,8 +102,38 @@ const OWNER_EMAILS = (process.env.OWNER_EMAILS ?? 'kumarbrijesh@grofers.com')
   .map((e) => e.trim().toLowerCase())
   .filter(Boolean);
 
-const APP_PASSWORD = process.env.APP_PASSWORD ?? '';
+/**
+ * The shared sign-in password.
+ *
+ * APP_PASSWORD_FILE is the deployed form, for the same reason DATABASE_URL_FILE
+ * is: the value is generated inside the cluster and written to a volume, so it
+ * never exists in this repository, in a manifest, or in anyone's shell history.
+ * APP_PASSWORD still works for a local run.
+ *
+ * Unset, the console accepts any address on an allowed domain with no password
+ * at all, which is why a missing file is worth a loud line in the log.
+ */
+function resolveAppPassword(): string {
+  const direct = (process.env.APP_PASSWORD ?? '').trim();
+  if (direct) return direct;
+
+  const file = (process.env.APP_PASSWORD_FILE ?? '').trim();
+  if (!file) return '';
+  try {
+    return fs.readFileSync(file, 'utf-8').trim();
+  } catch (err) {
+    console.error(`[Auth] Could not read APP_PASSWORD_FILE (${file}):`, err);
+    return '';
+  }
+}
+
+const APP_PASSWORD = resolveAppPassword();
 const PASSWORD_REQUIRED = APP_PASSWORD.length > 0;
+if (!PASSWORD_REQUIRED) {
+  console.warn(
+    '[Auth] No password is set - any address on an allowed domain can sign in.'
+  );
+}
 const SESSION_COOKIE = 'dms_session';
 /**
  * The platform edge strips the Cookie header before a request reaches this
