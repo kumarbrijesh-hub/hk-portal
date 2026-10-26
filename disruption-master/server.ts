@@ -421,6 +421,10 @@ function backfillDerivedTimings(): number {
  */
 let pgStore: PostgresStore | null = null;
 
+/** How long to wait between attempts at the *first* connection. */
+const ATTACH_RETRY_MIN_MS = 3_000;
+const ATTACH_RETRY_MAX_MS = 60_000;
+
 function saveDb() {
   try {
     const json = JSON.stringify(db, null, 2);
@@ -446,15 +450,11 @@ function saveDb() {
  * one write behind, so whichever side holds more disruptions is taken. That
  * rule is deliberately crude: it cannot silently discard records, which is the
  * only failure here that would not be recoverable.
+ *
+ * Returns whether Postgres is now attached. A false is not fatal - the caller
+ * keeps retrying in the background while the console serves off the file.
  */
-async function initPersistence(): Promise<void> {
-  if (!DATABASE_URL) {
-    console.log(
-      '[Store] No DATABASE_URL/DATABASE_URL_FILE - using the JSON file on the volume.'
-    );
-    return;
-  }
-
+async function attachPostgres(): Promise<boolean> {
   const store = new PostgresStore(DATABASE_URL);
   try {
     await store.init();
@@ -486,6 +486,7 @@ async function initPersistence(): Promise<void> {
     store.attach(() => db);
     pgStore = store;
     console.log('[Store] Postgres is the system of record; the JSON file is the local fallback.');
+    return true;
   } catch (err) {
     // Starting without the database is better than not starting: the volume
     // still holds every record and the pod stays usable.
@@ -494,7 +495,47 @@ async function initPersistence(): Promise<void> {
       err instanceof Error ? err.message : err
     );
     await store.close().catch(() => undefined);
+    return false;
   }
+}
+
+/**
+ * Attaches Postgres, and keeps trying if it is not up yet.
+ *
+ * Deployed, the database is a sidecar in this same pod, so the two start
+ * together and a first boot has to run initdb - the app reliably wins that race
+ * and finds nothing listening. Without a retry the pod would then serve off the
+ * JSON file until somebody noticed and restarted it, which is the failure this
+ * whole change was meant to remove.
+ *
+ * The first attempt is awaited so that a database which is already up is the
+ * system of record before the first request is served. Later attempts run in
+ * the background.
+ */
+async function initPersistence(): Promise<void> {
+  if (!DATABASE_URL) {
+    console.log(
+      '[Store] No DATABASE_URL/DATABASE_URL_FILE - using the JSON file on the volume.'
+    );
+    return;
+  }
+
+  if (await attachPostgres()) return;
+
+  let delayMs = ATTACH_RETRY_MIN_MS;
+  const retry = () => {
+    const timer = setTimeout(() => {
+      void attachPostgres().then((attached) => {
+        if (attached) return;
+        delayMs = Math.min(delayMs * 2, ATTACH_RETRY_MAX_MS);
+        retry();
+      });
+    }, delayMs);
+    // A pending retry must never be what keeps the process alive.
+    timer.unref?.();
+    console.warn(`[Store] Retrying the Postgres connection in ${Math.round(delayMs / 1000)}s.`);
+  };
+  retry();
 }
 
 {

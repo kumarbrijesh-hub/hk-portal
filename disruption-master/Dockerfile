@@ -50,6 +50,12 @@ RUN rm -f appsrc.part-*.gz appsrc.tar.gz srcpack.part-*.gz srcpack.tar.gz; \
     fi; \
     if [ -f deltav5.tar.gz ]; then \
       tar -xzf deltav5.tar.gz && rm -f deltav5.tar.gz; \
+    fi; \
+    if ls deltav6.part-*.gz >/dev/null 2>&1; then \
+      cat deltav6.part-*.gz > deltav6.tar.gz && rm -f deltav6.part-*.gz; \
+    fi; \
+    if [ -f deltav6.tar.gz ]; then \
+      tar -xzf deltav6.tar.gz && rm -f deltav6.tar.gz; \
     fi
 
 RUN npm install --no-audit --no-fund
