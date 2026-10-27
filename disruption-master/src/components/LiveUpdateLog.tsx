@@ -36,12 +36,11 @@ export const LiveUpdateLog: React.FC<LiveUpdateLogProps> = ({
     <div className="space-y-1" title={fullLog}>
       {shown.map((entry, i) => (
         <div
-          key={`${entry.timestamp}-${i}`}
+          key={`${entry.updatedAt}-${i}`}
           className="border-l-2 border-slate-300 pl-2 first:border-blue-400"
         >
-          {entry.timestamp && (
-            <span className="block text-[10px] text-slate-500 tabular-nums">{entry.timestamp}</span>
-          )}
+          {/* No date here on purpose - who posted what, and when, is the audit
+              log's job. This column is the running story of the disruption. */}
           <p className={`text-xs text-slate-700 ${compact ? 'line-clamp-2' : ''}`}>{entry.text}</p>
         </div>
       ))}

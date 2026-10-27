@@ -7,9 +7,11 @@
  * this" - so that a glance at one cell tells the full story without opening the
  * record.
  *
- * Who posted which update stays out of this deliberately. That is the audit
- * log's job, and keeping the two separate is what lets this read as a story of
- * the disruption rather than a list of edits.
+ * Who posted which update, and when, stays out of this deliberately. That is
+ * the audit log's job - it shows updatedBy and updatedAt per entry - and
+ * keeping the two separate is what lets this read as a story of the disruption
+ * rather than a list of edits. It also keeps the report's cell down to the
+ * sentences themselves, which is the whole reason anyone reads it.
  */
 
 import { Disruption, DisruptionUpdateHistory } from '../types';
@@ -22,18 +24,22 @@ function orderedHistory(d: Disruption): DisruptionUpdateHistory[] {
 }
 
 /**
- * Timestamp trimmed to the minute. The stored form is already IST wall-clock
- * ("DD/MM/YYYY HH:MM:SS"), so the seconds are all that need dropping.
+ * One update, flattened to a single line.
+ *
+ * An update typed with line breaks in it would otherwise be indistinguishable
+ * from two updates once they are joined, and a report cell is read as one line
+ * per update.
  */
-function shortTimestamp(updatedAt?: string): string {
-  const stamp = (updatedAt || '').trim();
-  if (!stamp) return '';
-  const match = stamp.match(/^(\d{2}\/\d{2}\/\d{4})[ ,T]+(\d{2}:\d{2})/);
-  return match ? `${match[1]} ${match[2]}` : stamp;
+function oneLine(text?: string): string {
+  return (text || '').replace(/\s+/g, ' ').trim();
 }
 
 export interface LiveUpdateEntry {
-  timestamp: string;
+  /**
+   * Kept for ordering and as a stable React key only - never displayed. Dates
+   * belong in the audit log, not in the Live Update column.
+   */
+  updatedAt: string;
   text: string;
 }
 
@@ -41,22 +47,24 @@ export interface LiveUpdateEntry {
 export function liveUpdateEntries(d: Disruption): LiveUpdateEntry[] {
   const history = orderedHistory(d);
   if (history.length === 0) {
-    const latest = (d.latestLiveUpdate || '').trim();
-    return latest ? [{ timestamp: shortTimestamp(d.lastUpdatedAt), text: latest }] : [];
+    const latest = oneLine(d.latestLiveUpdate);
+    return latest ? [{ updatedAt: (d.lastUpdatedAt || '').trim(), text: latest }] : [];
   }
   return history.map((u) => ({
-    timestamp: shortTimestamp(u.updatedAt),
-    text: (u.updateText || '').trim(),
+    updatedAt: (u.updatedAt || '').trim(),
+    text: oneLine(u.updateText),
   }));
 }
 
 /**
- * The running log as one block of text, newest at the bottom. Used wherever a
- * single string is needed - a CSV cell, a tooltip, a spreadsheet column.
+ * The running log as one block of text, oldest first, one update per line and
+ * nothing else. Used wherever a single string is needed - a CSV cell, a
+ * tooltip, a spreadsheet column.
  */
 export function cumulativeLiveUpdate(d: Disruption): string {
   return liveUpdateEntries(d)
-    .map((e) => (e.timestamp ? `[${e.timestamp}] ${e.text}` : e.text))
+    .map((e) => e.text)
+    .filter(Boolean)
     .join('\n');
 }
 
