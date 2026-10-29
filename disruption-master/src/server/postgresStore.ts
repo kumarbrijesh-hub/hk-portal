@@ -20,6 +20,7 @@
  * SQL without the schema having to track every field the app grows.
  */
 
+import { createHash } from 'crypto';
 import { Pool, PoolClient } from 'pg';
 import { AppConfig, Disruption, OutletMaster, SyncStatuses } from '../types';
 
@@ -76,6 +77,11 @@ CREATE TABLE IF NOT EXISTS app_state (
 const RETRY_MIN_MS = 2_000;
 const RETRY_MAX_MS = 60_000;
 
+/** Cheap content fingerprint, used to skip rewriting a section that is unchanged. */
+function digest(value: unknown): string {
+  return createHash('sha1').update(JSON.stringify(value) ?? 'null').digest('hex');
+}
+
 /** Numeric fields arrive as numbers or undefined; Postgres wants null. */
 function num(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -97,6 +103,17 @@ export class PostgresStore {
   /** Pending retry after a failed flush, so an outage does not strand a write. */
   private retryTimer: NodeJS.Timeout | null = null;
   private retryDelayMs = RETRY_MIN_MS;
+  /**
+   * Digest of each section as it was last written, so a flush only touches the
+   * sections that actually changed.
+   *
+   * Without this, every save rewrote all of them. The scheduled sheet sync
+   * stamps a timestamp onto syncStatuses every few minutes and saves, which was
+   * re-upserting the entire outlet master - thousands of rows - to record that
+   * one field. Postgres showed it as a steady few megabytes of WAL per
+   * checkpoint on a store with a handful of disruptions in it.
+   */
+  private written: Partial<Record<'disruptions' | 'outlets' | 'users' | 'appState', string>> = {};
 
   constructor(connectionString: string) {
     this.pool = new Pool({
@@ -196,26 +213,53 @@ export class PostgresStore {
     }
   }
 
-  /** One transaction so a reader never sees a half-written generation. */
+  /**
+   * One transaction so a reader never sees a half-written generation.
+   *
+   * Only the sections whose contents changed since the last successful write
+   * are touched. The digests are committed together with the data, so a failed
+   * transaction leaves them as they were and the next attempt writes the lot.
+   */
   async write(state: PersistedState): Promise<void> {
+    const next = {
+      disruptions: digest(state.disruptions),
+      outlets: digest(state.outlets),
+      users: digest(state.users),
+      appState: digest([state.config, state.syncStatuses]),
+    };
+
+    const changed = (Object.keys(next) as Array<keyof typeof next>).filter(
+      (section) => this.written[section] !== next[section]
+    );
+    if (changed.length === 0) return;
+
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      await this.writeDisruptions(client, state.disruptions);
-      await this.writeKeyed(client, 'outlets', 'outlet_id', state.outlets, (o) => o.outletId);
-      await this.writeKeyed(
-        client,
-        'users',
-        'email',
-        state.users as Array<{ email: string }>,
-        (u) => u.email
-      );
-      await client.query(
-        `INSERT INTO app_state (key, payload) VALUES ('config', $1), ('syncStatuses', $2)
-         ON CONFLICT (key) DO UPDATE SET payload = EXCLUDED.payload`,
-        [JSON.stringify(state.config), JSON.stringify(state.syncStatuses)]
-      );
+      if (changed.includes('disruptions')) {
+        await this.writeDisruptions(client, state.disruptions);
+      }
+      if (changed.includes('outlets')) {
+        await this.writeKeyed(client, 'outlets', 'outlet_id', state.outlets, (o) => o.outletId);
+      }
+      if (changed.includes('users')) {
+        await this.writeKeyed(
+          client,
+          'users',
+          'email',
+          state.users as Array<{ email: string }>,
+          (u) => u.email
+        );
+      }
+      if (changed.includes('appState')) {
+        await client.query(
+          `INSERT INTO app_state (key, payload) VALUES ('config', $1), ('syncStatuses', $2)
+           ON CONFLICT (key) DO UPDATE SET payload = EXCLUDED.payload`,
+          [JSON.stringify(state.config), JSON.stringify(state.syncStatuses)]
+        );
+      }
       await client.query('COMMIT');
+      this.written = next;
       this.lastError = null;
     } catch (err) {
       await client.query('ROLLBACK').catch(() => undefined);
