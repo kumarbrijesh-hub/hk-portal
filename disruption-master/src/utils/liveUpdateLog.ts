@@ -57,15 +57,25 @@ export function liveUpdateEntries(d: Disruption): LiveUpdateEntry[] {
 }
 
 /**
- * The running log as one block of text, oldest first, one update per line and
- * nothing else. Used wherever a single string is needed - a CSV cell, a
- * tooltip, a spreadsheet column.
+ * The running log as one block of text, oldest first, joined with commas so it
+ * reads as one continuous account rather than a list.
+ *
+ * "Temperature is not maintained" plus, hours later, "RAC aligned at site"
+ * comes out as "Temperature is not maintained, RAC aligned at site".
+ *
+ * Trailing punctuation is dropped only where a comma is about to follow, so the
+ * comma does not land after a stray period. The last update keeps its own full
+ * stop, and punctuation inside any update is left alone - that is the author's
+ * sentence, not our separator.
  */
 export function cumulativeLiveUpdate(d: Disruption): string {
-  return liveUpdateEntries(d)
-    .map((e) => e.text)
-    .filter(Boolean)
-    .join('\n');
+  const texts = liveUpdateEntries(d)
+    .map((e) => e.text.trim())
+    .filter(Boolean);
+
+  return texts
+    .map((text, i) => (i === texts.length - 1 ? text : text.replace(/[.,;\s]+$/, '')))
+    .join(', ');
 }
 
 /**
