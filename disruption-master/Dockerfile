@@ -1,4 +1,5 @@
 # Disruption Management System - Vite SPA + Express API in one container.
+# Source overlay generation: deltav9.
 FROM node:22-bookworm-slim AS build
 
 WORKDIR /app
