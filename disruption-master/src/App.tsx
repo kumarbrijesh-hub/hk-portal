@@ -551,7 +551,6 @@ export default function App() {
             onSyncNow={handleSyncNow}
             onSyncSource={handleSyncSource}
             onUploadSourceCsv={handleUploadSourceCsv}
-            onBulkUploadOutlets={handleBulkUploadOutlets}
           />
         )}
       </main>

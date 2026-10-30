@@ -798,7 +798,6 @@ async function syncOutletMaster(): Promise<{ success: boolean; count: number; er
   const source = db.config.sources.outletMaster;
   const url = source.url;
   const tab = source.tabName;
-  const mapping = db.config.columnMapping;
 
   if (!url || !url.trim()) {
     // Nothing to pull from yet — keep serving whatever master is already cached.
@@ -817,213 +816,19 @@ async function syncOutletMaster(): Promise<{ success: boolean; count: number; er
   try {
     if (!csvText) {
       throw new Error(
-        `Store Master sync failed (${fetchError}). Set the sheet link to "Anyone with the link can view", or paste the rows in with Upload.`
+        `Store Master sync failed (${fetchError}). Set the sheet link to "Anyone with the link can view", or upload the CSV instead.`
       );
     }
 
-    const { headers, rows } = parseCsvTable(csvText);
-    const findIndex = makeHeaderIndexer(headers);
-
-    const idxOutlet = findIndex(mapping.outletId, [
-      'outlet_id',
-      'outletid',
-      'outlet id',
-      'store_id',
-      'storeid',
-      'outlet',
-      'hub_id',
-      'code',
-    ]);
-    const idxCity = findIndex(mapping.city, ['city', 'location', 'region', 'zone', 'town']);
-    const idxStore = findIndex(mapping.storeName, [
-      'store name',
-      'store_name',
-      'storename',
-      'store',
-      'hub name',
-      'hub',
-    ]);
-    const idxPoc = findIndex(mapping.pocName, [
-      'cold poc name-2',
-      'cold poc name 2',
-      'cold poc name',
-      'cold_poc_name_2',
-      'cold_poc_name',
-      'poc name-2',
-      'poc name',
-      'poc_name',
-      'manager name',
-      'poc',
-    ]);
-    const idxContact = findIndex(mapping.pocContact, [
-      'cold poc contact-2',
-      'cold poc contact 2',
-      'cold poc contact',
-      'cold_poc_contact_2',
-      'cold_poc_contact',
-      'poc contact-2',
-      'poc contact number',
-      'poc contact',
-      'poc_contact',
-      'contact number',
-      'phone',
-      'mobile',
-    ]);
-    const idxMode = findIndex(mapping.mode, ['mode', 'store mode', 'format', 'store type', 'type']);
-    const idxVendor = findIndex(mapping.vendor, ['vendor', 'partner', 'agency', 'oem']);
-    const idxAmc = findIndex(mapping.amcCoverage || 'amc coverage', ['amc coverage', 'amc', 'coverage', 'amc status']);
-    const idxCurrentVendor = findIndex(mapping.currentVendor || 'current vendor (amc or warranty)', [
-      'current vendor (amc or warranty)',
-      'current vendor',
-      'vendor (amc or warranty)',
-      'vendor (auto)',
-    ]);
-    const idxL1Name = findIndex(mapping.lodL1Name || 'lod - 2 l1 name', [
-      'lod - 2 l1 name',
-      'lod 2 l1 name',
-      'lod-2 l1 name',
-      'lod l1 name',
-      'l1 name',
-    ]);
-    const idxL1Email = findIndex(mapping.lodL1Email || 'lod - 2 l1 email', [
-      'lod - 2 l1 email',
-      'lod 2 l1 email',
-      'lod-2 l1 email',
-      'lod l1 email',
-      'l1 email',
-    ]);
-    const idxL1Contact = findIndex(mapping.lodL1Contact || 'lod - 2 l1 contact no', [
-      'lod - 2 l1 contact no',
-      'lod 2 l1 contact',
-      'lod - 2 l1 contact',
-      'l1 contact no',
-      'l1 contact',
-    ]);
-    const idxL2Name = findIndex(mapping.lodL2Name || 'lod - 2 l2 name', [
-      'lod - 2 l2 name',
-      'lod 2 l2 name',
-      'lod-2 l2 name',
-      'lod l2 name',
-      'l2 name',
-    ]);
-    const idxL2Email = findIndex(mapping.lodL2Email || 'lod - 2 l2 email', [
-      'lod - 2 l2 email',
-      'lod 2 l2 email',
-      'lod-2 l2 email',
-      'lod l2 email',
-      'l2 email',
-    ]);
-    const idxL2Contact = findIndex(mapping.lodL2Contact || 'lod - 2 l2 contact no', [
-      'lod - 2 l2 contact no',
-      'lod 2 l2 contact',
-      'lod - 2 l2 contact',
-      'l2 contact no',
-      'l2 contact',
-    ]);
-    const idxL3Name = findIndex(mapping.lodL3Name || 'lod - 2 l3 name', [
-      'lod - 2 l3 name',
-      'lod 2 l3 name',
-      'lod-2 l3 name',
-      'lod l3 name',
-      'l3 name',
-    ]);
-    const idxL3Email = findIndex(mapping.lodL3Email || 'lod - 2 l3 email', [
-      'lod - 2 l3 email',
-      'lod 2 l3 email',
-      'lod-2 l3 email',
-      'lod l3 email',
-      'l3 email',
-    ]);
-    const idxL3Contact = findIndex(mapping.lodL3Contact || 'lod - 2 l3 contact no.', [
-      'lod - 2 l3 contact no.',
-      'lod - 2 l3 contact no',
-      'lod 2 l3 contact',
-      'lod - 2 l3 contact',
-      'l3 contact no',
-      'l3 contact',
-    ]);
-    const idxRegion = findIndex('region (auto)', ['region (auto)', 'region', 'zone']);
-    const idxMstRacName = findIndex('mst/rac name (auto)', ['mst/rac name (auto)', 'mst/rac name', 'mst rac name', 'mst name']);
-    const idxMstRacContact = findIndex('mst/rac contact no. (auto)', ['mst/rac contact no. (auto)', 'mst/rac contact no', 'mst rac contact']);
-
-    if (idxOutlet === -1) {
-      throw new Error(`Outlet ID column (e.g. "outlet_id" / "${mapping.outletId}") not found in the Store Master sheet headers.`);
-    }
-
-    const newOutlets: OutletMaster[] = [];
-    const seenIds = new Set<string>();
-
-    for (const row of rows) {
-      const rawOutletId = (row[idxOutlet] || '').trim();
-      if (!rawOutletId) continue;
-      const outletId = rawOutletId.toUpperCase();
-      if (seenIds.has(outletId)) continue;
-
-      seenIds.add(outletId);
-      const storeName = (idxStore !== -1 ? row[idxStore] : '') || `Store ${outletId}`;
-      const city = (idxCity !== -1 ? row[idxCity] : '') || 'Unspecified';
-      const mode = (idxMode !== -1 ? row[idxMode] : '') || 'Dark Store';
-      const vendor = (idxVendor !== -1 ? row[idxVendor] : '') || 'RAC';
-      const pocName = (idxPoc !== -1 ? row[idxPoc] : '') || 'Store POC';
-      const pocContact = (idxContact !== -1 ? row[idxContact] : '') || '+91 00000 00000';
-
-      const amcCoverage = (idxAmc !== -1 ? row[idxAmc] : '') || '';
-      const currentVendor = (idxCurrentVendor !== -1 ? row[idxCurrentVendor] : '') || vendor;
-      const lodL1Name = (idxL1Name !== -1 ? row[idxL1Name] : '') || '';
-      const lodL1Email = (idxL1Email !== -1 ? row[idxL1Email] : '') || '';
-      const lodL1Contact = (idxL1Contact !== -1 ? row[idxL1Contact] : '') || '';
-      const lodL2Name = (idxL2Name !== -1 ? row[idxL2Name] : '') || '';
-      const lodL2Email = (idxL2Email !== -1 ? row[idxL2Email] : '') || '';
-      const lodL2Contact = (idxL2Contact !== -1 ? row[idxL2Contact] : '') || '';
-      const lodL3Name = (idxL3Name !== -1 ? row[idxL3Name] : '') || '';
-      const lodL3Email = (idxL3Email !== -1 ? row[idxL3Email] : '') || '';
-      const lodL3Contact = (idxL3Contact !== -1 ? row[idxL3Contact] : '') || '';
-      const region = (idxRegion !== -1 ? row[idxRegion] : '') || '';
-      const mstRacName = (idxMstRacName !== -1 ? row[idxMstRacName] : '') || '';
-      const mstRacContact = (idxMstRacContact !== -1 ? row[idxMstRacContact] : '') || '';
-
-      newOutlets.push({
-        outletId,
-        storeName,
-        city,
-        mode,
-        vendor,
-        pocName,
-        pocContact,
-        coldPocName2: pocName,
-        coldPocContact2: pocContact,
-        amcCoverage,
-        currentVendor,
-        lodL1Name,
-        lodL1Email,
-        lodL1Contact,
-        lodL2Name,
-        lodL2Email,
-        lodL2Contact,
-        lodL3Name,
-        lodL3Email,
-        lodL3Contact,
-        region,
-        mstRacName,
-        mstRacContact,
-        syncedAt: formattedIST,
-      });
-    }
-
-    if (newOutlets.length === 0) {
-      throw new Error('No valid outlet records found in the Store Master sheet.');
-    }
-
-    // Update database cache
-    db.outlets = newOutlets;
+    const count = applyOutletRows(parseCsvTable(csvText));
     status.status = 'Success';
     status.lastSyncTime = formattedIST;
-    status.recordsCount = newOutlets.length;
+    status.recordsCount = count;
     status.errorDetails = null;
     status.source = `Google Sheet (${tab || 'Default'})`;
     saveDb();
 
-    return { success: true, count: newOutlets.length };
+    return { success: true, count };
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : 'Unknown synchronization error';
     status.status = 'Failed';
@@ -1122,6 +927,213 @@ async function syncDisruptionTimings(): Promise<{ success: boolean; count: numbe
   }
 }
 
+/**
+ * Shared by the sheet pull and the CSV upload. Replaces the whole store
+ * master and returns the number of outlets applied.
+ *
+ * The column matching lives here rather than in either caller so an uploaded
+ * CSV and a pulled sheet are read by exactly one parser, and the documented
+ * column spec cannot drift from one of the two paths.
+ */
+function applyOutletRows({ headers, rows }: { headers: string[]; rows: string[][] }): number {
+  const { formattedIST } = getCurrentISTDate();
+  const mapping = db.config.columnMapping;
+  const findIndex = makeHeaderIndexer(headers);
+
+  const idxOutlet = findIndex(mapping.outletId, [
+    'outlet_id',
+    'outletid',
+    'outlet id',
+    'store_id',
+    'storeid',
+    'outlet',
+    'hub_id',
+    'code',
+  ]);
+  const idxCity = findIndex(mapping.city, ['city', 'location', 'region', 'zone', 'town']);
+  const idxStore = findIndex(mapping.storeName, [
+    'store name',
+    'store_name',
+    'storename',
+    'store',
+    'hub name',
+    'hub',
+  ]);
+  const idxPoc = findIndex(mapping.pocName, [
+    'cold poc name-2',
+    'cold poc name 2',
+    'cold poc name',
+    'cold_poc_name_2',
+    'cold_poc_name',
+    'poc name-2',
+    'poc name',
+    'poc_name',
+    'manager name',
+    'poc',
+  ]);
+  const idxContact = findIndex(mapping.pocContact, [
+    'cold poc contact-2',
+    'cold poc contact 2',
+    'cold poc contact',
+    'cold_poc_contact_2',
+    'cold_poc_contact',
+    'poc contact-2',
+    'poc contact number',
+    'poc contact',
+    'poc_contact',
+    'contact number',
+    'phone',
+    'mobile',
+  ]);
+  const idxMode = findIndex(mapping.mode, ['mode', 'store mode', 'format', 'store type', 'type']);
+  const idxVendor = findIndex(mapping.vendor, ['vendor', 'partner', 'agency', 'oem']);
+  const idxAmc = findIndex(mapping.amcCoverage || 'amc coverage', ['amc coverage', 'amc', 'coverage', 'amc status']);
+  const idxCurrentVendor = findIndex(mapping.currentVendor || 'current vendor (amc or warranty)', [
+    'current vendor (amc or warranty)',
+    'current vendor',
+    'vendor (amc or warranty)',
+    'vendor (auto)',
+  ]);
+  const idxL1Name = findIndex(mapping.lodL1Name || 'lod - 2 l1 name', [
+    'lod - 2 l1 name',
+    'lod 2 l1 name',
+    'lod-2 l1 name',
+    'lod l1 name',
+    'l1 name',
+  ]);
+  const idxL1Email = findIndex(mapping.lodL1Email || 'lod - 2 l1 email', [
+    'lod - 2 l1 email',
+    'lod 2 l1 email',
+    'lod-2 l1 email',
+    'lod l1 email',
+    'l1 email',
+  ]);
+  const idxL1Contact = findIndex(mapping.lodL1Contact || 'lod - 2 l1 contact no', [
+    'lod - 2 l1 contact no',
+    'lod 2 l1 contact',
+    'lod - 2 l1 contact',
+    'l1 contact no',
+    'l1 contact',
+  ]);
+  const idxL2Name = findIndex(mapping.lodL2Name || 'lod - 2 l2 name', [
+    'lod - 2 l2 name',
+    'lod 2 l2 name',
+    'lod-2 l2 name',
+    'lod l2 name',
+    'l2 name',
+  ]);
+  const idxL2Email = findIndex(mapping.lodL2Email || 'lod - 2 l2 email', [
+    'lod - 2 l2 email',
+    'lod 2 l2 email',
+    'lod-2 l2 email',
+    'lod l2 email',
+    'l2 email',
+  ]);
+  const idxL2Contact = findIndex(mapping.lodL2Contact || 'lod - 2 l2 contact no', [
+    'lod - 2 l2 contact no',
+    'lod 2 l2 contact',
+    'lod - 2 l2 contact',
+    'l2 contact no',
+    'l2 contact',
+  ]);
+  const idxL3Name = findIndex(mapping.lodL3Name || 'lod - 2 l3 name', [
+    'lod - 2 l3 name',
+    'lod 2 l3 name',
+    'lod-2 l3 name',
+    'lod l3 name',
+    'l3 name',
+  ]);
+  const idxL3Email = findIndex(mapping.lodL3Email || 'lod - 2 l3 email', [
+    'lod - 2 l3 email',
+    'lod 2 l3 email',
+    'lod-2 l3 email',
+    'lod l3 email',
+    'l3 email',
+  ]);
+  const idxL3Contact = findIndex(mapping.lodL3Contact || 'lod - 2 l3 contact no.', [
+    'lod - 2 l3 contact no.',
+    'lod - 2 l3 contact no',
+    'lod 2 l3 contact',
+    'lod - 2 l3 contact',
+    'l3 contact no',
+    'l3 contact',
+  ]);
+  const idxRegion = findIndex('region (auto)', ['region (auto)', 'region', 'zone']);
+  const idxMstRacName = findIndex('mst/rac name (auto)', ['mst/rac name (auto)', 'mst/rac name', 'mst rac name', 'mst name']);
+  const idxMstRacContact = findIndex('mst/rac contact no. (auto)', ['mst/rac contact no. (auto)', 'mst/rac contact no', 'mst rac contact']);
+
+  if (idxOutlet === -1) {
+    throw new Error(`Outlet ID column (e.g. "outlet_id" / "${mapping.outletId}") not found in the Store Master header row.`);
+  }
+
+  const newOutlets: OutletMaster[] = [];
+  const seenIds = new Set<string>();
+
+  for (const row of rows) {
+    const rawOutletId = (row[idxOutlet] || '').trim();
+    if (!rawOutletId) continue;
+    const outletId = rawOutletId.toUpperCase();
+    if (seenIds.has(outletId)) continue;
+
+    seenIds.add(outletId);
+    const storeName = (idxStore !== -1 ? row[idxStore] : '') || `Store ${outletId}`;
+    const city = (idxCity !== -1 ? row[idxCity] : '') || 'Unspecified';
+    const mode = (idxMode !== -1 ? row[idxMode] : '') || 'Dark Store';
+    const vendor = (idxVendor !== -1 ? row[idxVendor] : '') || 'RAC';
+    const pocName = (idxPoc !== -1 ? row[idxPoc] : '') || 'Store POC';
+    const pocContact = (idxContact !== -1 ? row[idxContact] : '') || '+91 00000 00000';
+
+    const amcCoverage = (idxAmc !== -1 ? row[idxAmc] : '') || '';
+    const currentVendor = (idxCurrentVendor !== -1 ? row[idxCurrentVendor] : '') || vendor;
+    const lodL1Name = (idxL1Name !== -1 ? row[idxL1Name] : '') || '';
+    const lodL1Email = (idxL1Email !== -1 ? row[idxL1Email] : '') || '';
+    const lodL1Contact = (idxL1Contact !== -1 ? row[idxL1Contact] : '') || '';
+    const lodL2Name = (idxL2Name !== -1 ? row[idxL2Name] : '') || '';
+    const lodL2Email = (idxL2Email !== -1 ? row[idxL2Email] : '') || '';
+    const lodL2Contact = (idxL2Contact !== -1 ? row[idxL2Contact] : '') || '';
+    const lodL3Name = (idxL3Name !== -1 ? row[idxL3Name] : '') || '';
+    const lodL3Email = (idxL3Email !== -1 ? row[idxL3Email] : '') || '';
+    const lodL3Contact = (idxL3Contact !== -1 ? row[idxL3Contact] : '') || '';
+    const region = (idxRegion !== -1 ? row[idxRegion] : '') || '';
+    const mstRacName = (idxMstRacName !== -1 ? row[idxMstRacName] : '') || '';
+    const mstRacContact = (idxMstRacContact !== -1 ? row[idxMstRacContact] : '') || '';
+
+    newOutlets.push({
+      outletId,
+      storeName,
+      city,
+      mode,
+      vendor,
+      pocName,
+      pocContact,
+      coldPocName2: pocName,
+      coldPocContact2: pocContact,
+      amcCoverage,
+      currentVendor,
+      lodL1Name,
+      lodL1Email,
+      lodL1Contact,
+      lodL2Name,
+      lodL2Email,
+      lodL2Contact,
+      lodL3Name,
+      lodL3Email,
+      lodL3Contact,
+      region,
+      mstRacName,
+      mstRacContact,
+      syncedAt: formattedIST,
+    });
+  }
+
+  if (newOutlets.length === 0) {
+    throw new Error('No valid outlet records found. Check that the Outlet ID column is filled in.');
+  }
+
+  // Update database cache
+  db.outlets = newOutlets;
+  return newOutlets.length;
+}
 /** Shared by the sheet pull and the pasted-CSV upload. Returns rows applied. */
 function applyDisruptionTimingRows({ headers, rows }: { headers: string[]; rows: string[][] }): number {
   const findIndex = makeHeaderIndexer(headers);
@@ -1540,20 +1552,27 @@ async function startServer() {
   });
 
   /**
-   * Upload path for the timing and ticket feeds: the same CSV the sheet would
-   * have served, pasted in. The store master has its own richer bulk-upload
-   * route, which replaces the whole master and is owner-only.
+   * Upload path for all three feeds: the same CSV the sheet would have served,
+   * uploaded or pasted in. This is the route to use when the sheet cannot be
+   * link-shared, which is the normal case for a sheet restricted to the
+   * organisation.
+   *
+   * A store master upload replaces the whole master, so that one feed is
+   * owner-only; the timing and ticket feeds only touch rows they match by ID
+   * and stay open to any signed-in user.
    */
   app.post('/api/sync/:source/upload', (req, res) => {
     const key = sourceKeyFromRequest(req, res);
     if (!key) return;
-    if (key === 'outletMaster') {
-      return res.status(400).json({ error: 'Use the Store Master upload for outlet data.' });
+    if (key === 'outletMaster' && actor(res).role !== 'owner') {
+      return res
+        .status(403)
+        .json({ error: 'Only the owner account can replace the store master.' });
     }
 
     const csvText = String(req.body?.csvText || '');
     if (!csvText.trim()) {
-      return res.status(400).json({ error: 'Paste the sheet rows, including the header row.' });
+      return res.status(400).json({ error: 'Upload a CSV, or paste the rows including the header row.' });
     }
 
     const { formattedIST } = getCurrentISTDate();
@@ -1562,16 +1581,21 @@ async function startServer() {
 
     try {
       const table = parseCsvTable(csvText);
-      const count = key === 'tickets' ? applyTicketRows(table) : applyDisruptionTimingRows(table);
+      const count =
+        key === 'outletMaster'
+          ? applyOutletRows(table)
+          : key === 'tickets'
+            ? applyTicketRows(table)
+            : applyDisruptionTimingRows(table);
       status.status = 'Success';
       status.lastSyncTime = formattedIST;
       status.recordsCount = count;
       status.errorDetails = null;
-      status.source = 'Pasted upload';
+      status.source = 'CSV upload';
       saveDb();
       res.json({ success: true, count, source: key, status });
     } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : 'Could not read the pasted rows.';
+      const errorMsg = err instanceof Error ? err.message : 'Could not read the uploaded rows.';
       status.status = 'Failed';
       status.errorDetails = errorMsg;
       saveDb();

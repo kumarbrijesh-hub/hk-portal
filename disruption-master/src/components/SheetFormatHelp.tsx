@@ -207,23 +207,24 @@ export const SheetFormatHelp: React.FC<SheetFormatHelpProps> = ({ spec }) => {
           <div className="rounded border border-sky-200 bg-sky-50 p-2.5">
             <p className="text-[11px] font-semibold text-sky-900 mb-1 inline-flex items-center gap-1.5">
               <FileSpreadsheet className="w-3 h-3" />
-              For the Google Sheet sync to work
+              Getting this data in
             </p>
             <ol className="list-decimal pl-4 space-y-0.5">
               <li className="text-[11px] text-sky-900">
-                Open the sheet, click Share, and set General access to{' '}
-                <strong>Anyone with the link — Viewer</strong>. The app reads the sheet anonymously, so a
-                restricted sheet comes back as HTTP 401.
+                <strong>Upload a CSV.</strong> In the sheet, File → Download → Comma-separated values,
+                then press Upload CSV above and pick it. An .xlsx works too — the tab named above is
+                read from it. This is the route to use for a sheet restricted to the organisation.
               </li>
               <li className="text-[11px] text-sky-900">
-                Paste the sheet link into Sheet link above, and put the tab's exact name in Tab name.
-              </li>
-              <li className="text-[11px] text-sky-900">
-                Press Sync now once to check it, then leave auto-sync on to pick up changes every interval.
+                <strong>Or a sheet link</strong>, if the sheet may be shared with{' '}
+                <strong>Anyone with the link — Viewer</strong>. The app reads the sheet with no
+                account of its own, so a sheet restricted to zomato.com or grofers.com accounts comes
+                back as HTTP 401 and the sync fails.
               </li>
             </ol>
             <p className="text-[11px] text-sky-800 mt-1.5">
-              Not allowed to share the sheet? Use Upload rows instead and paste the same columns in.
+              Uploaded rows are read by the same parser as a synced sheet, so the columns above apply
+              either way.
             </p>
           </div>
         </div>

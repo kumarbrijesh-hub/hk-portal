@@ -31,6 +31,7 @@ import {
   statusOptionsFrom,
 } from '../types';
 import { formatSpecFor, templateCsvFor } from '../data/sheetFormats';
+import { countDataRows, readSpreadsheetAsCsv } from '../utils/spreadsheetFile';
 import { SheetFormatHelp } from './SheetFormatHelp';
 import { SheetSourcesPanel } from './SheetSourcesPanel';
 
@@ -49,7 +50,6 @@ interface ConfigViewProps {
   onSyncNow: () => void;
   onSyncSource: (key: SheetSourceKey) => Promise<void>;
   onUploadSourceCsv: (key: SheetSourceKey, csvText: string) => Promise<void>;
-  onBulkUploadOutlets: (outlets: OutletMaster[]) => Promise<void>;
 }
 
 /** Store master template, identical to the one offered for the sheet sync. */
@@ -77,7 +77,6 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
   onSyncNow,
   onSyncSource,
   onUploadSourceCsv,
-  onBulkUploadOutlets,
 }) => {
   // Local config form state
   const [sources, setSources] = useState<SheetSources>({ ...config.sources });
@@ -244,51 +243,31 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
     cancelRename();
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  /**
+   * Hands the file to the same server-side parser the Store Master sheet sync
+   * uses, so a file built from the template above lands identically whichever
+   * route it comes in by. It reads the header row, so column order does not
+   * matter and every documented column is picked up - not just the first few.
+   */
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // Lets the same file be picked again after a failed read.
+    e.target.value = '';
     if (!file) return;
 
     setCsvUploadError(null);
     setCsvUploadSuccess(null);
 
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      try {
-        const text = evt.target?.result as string;
-        const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-        if (lines.length < 2) {
-          throw new Error('CSV file has no data rows.');
-        }
-
-        const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''));
-        const newOutlets: OutletMaster[] = [];
-
-        for (let i = 1; i < lines.length; i++) {
-          const row = lines[i].split(',').map((c) => c.trim().replace(/^"|"$/g, ''));
-          if (row.length < 2) continue;
-          newOutlets.push({
-            outletId: row[0].toUpperCase(),
-            storeName: row[1] || `Store ${row[0]}`,
-            city: row[2] || 'Default City',
-            mode: row[3] || 'Dark Store',
-            vendor: row[4] || 'RAC',
-            pocName: row[5] || 'Operations Lead',
-            pocContact: row[6] || '+91 98000 00000',
-            syncedAt: new Date().toLocaleTimeString(),
-          });
-        }
-
-        if (newOutlets.length === 0) {
-          throw new Error('No valid outlet rows found in CSV.');
-        }
-
-        await onBulkUploadOutlets(newOutlets);
-        setCsvUploadSuccess(`Successfully loaded ${newOutlets.length} outlets into cache.`);
-      } catch (err: any) {
-        setCsvUploadError(err.message || 'Failed to parse CSV file');
+    try {
+      const csvText = await readSpreadsheetAsCsv(file, sources.outletMaster.tabName);
+      if (!csvText.trim()) {
+        throw new Error('That file came back empty.');
       }
-    };
-    reader.readAsText(file);
+      await onUploadSourceCsv('outletMaster', csvText);
+      setCsvUploadSuccess(`Applied ${countDataRows(csvText)} rows from ${file.name}.`);
+    } catch (err) {
+      setCsvUploadError(err instanceof Error ? err.message : 'Failed to read the file.');
+    }
   };
 
   return (
@@ -827,17 +806,17 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
               6. Direct Master Data CSV Import / Backup
             </h3>
             <span className="text-xs text-slate-500">
-              Upload outlet records directly if Google Sheets is not yet provisioned
+              Upload outlet records directly when the sheet cannot be link-shared
             </span>
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-4">
             <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-700 shadow-2xs transition">
               <Upload className="w-4 h-4 text-slate-500" />
-              <span>Select CSV File</span>
+              <span>Select CSV or Excel file</span>
               <input
                 type="file"
-                accept=".csv"
+                accept=".csv,.tsv,.txt,.xlsx,.xls"
                 onChange={handleFileUpload}
                 className="hidden"
               />
