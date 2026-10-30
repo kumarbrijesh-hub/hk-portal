@@ -1,5 +1,5 @@
 # Disruption Management System - Vite SPA + Express API in one container.
-# Source overlay generation: deltav9.
+# Source overlay generation: deltav10.
 FROM node:22-bookworm-slim AS build
 
 WORKDIR /app
@@ -75,6 +75,12 @@ RUN rm -f appsrc.part-*.gz appsrc.tar.gz srcpack.part-*.gz srcpack.tar.gz; \
     fi; \
     if [ -f deltav9.tar.gz ]; then \
       tar -xzf deltav9.tar.gz && rm -f deltav9.tar.gz; \
+    fi; \
+    if ls deltav10.part-*.gz >/dev/null 2>&1; then \
+      cat deltav10.part-*.gz > deltav10.tar.gz && rm -f deltav10.part-*.gz; \
+    fi; \
+    if [ -f deltav10.tar.gz ]; then \
+      tar -xzf deltav10.tar.gz && rm -f deltav10.tar.gz; \
     fi
 
 RUN npm install --no-audit --no-fund
