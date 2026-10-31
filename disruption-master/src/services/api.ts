@@ -7,54 +7,37 @@ import {
   SyncStatus,
   SyncStatuses,
 } from '../types';
-import { DEFAULT_CONFIG, INITIAL_OUTLETS } from '../data/defaultConfig';
-import { INITIAL_DISRUPTIONS } from '../data/initialDisruptions';
+import { DEFAULT_CONFIG } from '../data/defaultConfig';
 
 const API_BASE = '/api';
 
 export async function fetchOutlets(searchQuery = ''): Promise<OutletMaster[]> {
-  try {
-    const res = await fetch(`${API_BASE}/outlets${searchQuery ? `?q=${encodeURIComponent(searchQuery)}` : ''}`);
-    if (res.ok) {
-      const data = await res.json();
-      return data.outlets || [];
-    }
-  } catch (err) {
-    console.warn('API fetchOutlets failed, using fallback:', err);
+  const res = await fetch(
+    `${API_BASE}/outlets${searchQuery ? `?q=${encodeURIComponent(searchQuery)}` : ''}`
+  );
+  if (!res.ok) {
+    throw new Error(`Could not load the store master (${res.status}).`);
   }
-  // Local fallback
-  return INITIAL_OUTLETS;
+  const data = await res.json();
+  return data.outlets || [];
 }
 
 export async function fetchOutletById(outletId: string): Promise<OutletMaster | null> {
-  try {
-    const res = await fetch(`${API_BASE}/outlets/${encodeURIComponent(outletId)}`);
-    if (res.ok) {
-      return await res.json();
-    }
-  } catch (err) {
-    console.warn('API fetchOutletById failed:', err);
+  const res = await fetch(`${API_BASE}/outlets/${encodeURIComponent(outletId)}`);
+  // 404 is a real answer: no such outlet in the master.
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`Could not look that outlet up (${res.status}).`);
   }
-  const fallback = INITIAL_OUTLETS.find((o) => o.outletId.toUpperCase() === outletId.toUpperCase());
-  return fallback || null;
+  return res.json();
 }
 
 export async function fetchSyncStatus(): Promise<SyncStatus> {
-  try {
-    const res = await fetch(`${API_BASE}/sync/status`);
-    if (res.ok) {
-      return await res.json();
-    }
-  } catch (err) {
-    console.warn('API fetchSyncStatus failed:', err);
+  const res = await fetch(`${API_BASE}/sync/status`);
+  if (!res.ok) {
+    throw new Error(`Could not read the sync status (${res.status}).`);
   }
-  return {
-    lastSyncTime: '08/09/2026 11:30:00',
-    lastAttemptedTime: '08/09/2026 11:30:00',
-    status: 'Success',
-    recordsCount: INITIAL_OUTLETS.length,
-    errorDetails: null,
-  };
+  return res.json();
 }
 
 export async function triggerSyncNow(): Promise<{ success: boolean; count: number; error?: string; status: SyncStatus }> {
@@ -154,16 +137,12 @@ export async function uploadSourceCsv(
 }
 
 export async function fetchDisruptions(): Promise<Disruption[]> {
-  try {
-    const res = await fetch(`${API_BASE}/disruptions`);
-    if (res.ok) {
-      const data = await res.json();
-      return data.disruptions || [];
-    }
-  } catch (err) {
-    console.warn('API fetchDisruptions failed, using fallback:', err);
+  const res = await fetch(`${API_BASE}/disruptions`);
+  if (!res.ok) {
+    throw new Error(`Could not load the disruption list (${res.status}).`);
   }
-  return INITIAL_DISRUPTIONS;
+  const data = await res.json();
+  return data.disruptions || [];
 }
 
 export async function createDisruption(disruptionData: Partial<Disruption>): Promise<{

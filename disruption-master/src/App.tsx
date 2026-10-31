@@ -42,8 +42,7 @@ import {
   bulkUploadOutlets,
   deleteDisruption,
 } from './services/api';
-import { DEFAULT_CONFIG, INITIAL_OUTLETS } from './data/defaultConfig';
-import { INITIAL_DISRUPTIONS } from './data/initialDisruptions';
+import { DEFAULT_CONFIG } from './data/defaultConfig';
 
 /** Sign-in gate. Only work addresses on the allowed domains get through. */
 function LoginScreen({ auth, onSignedIn }: { auth: AuthState; onSignedIn: () => void }) {
@@ -158,6 +157,17 @@ function LoginScreen({ auth, onSignedIn }: { auth: AuthState; onSignedIn: () => 
   );
 }
 
+/** A feed that has not reported yet. Never claims a sync that did not happen. */
+function idleStatus(): SyncStatus {
+  return {
+    lastSyncTime: null,
+    lastAttemptedTime: null,
+    status: 'Idle',
+    recordsCount: 0,
+    errorDetails: null,
+  };
+}
+
 export default function App() {
   // Access control: null until /api/auth/me answers, so nothing flashes first.
   const [auth, setAuth] = useState<AuthState | null>(null);
@@ -187,26 +197,17 @@ export default function App() {
   // Navigation
   const [activeTab, setActiveTab] = useState<AppTab>('liveTracker');
 
-  // Core Data
-  const [disruptions, setDisruptions] = useState<Disruption[]>(INITIAL_DISRUPTIONS);
-  const [outlets, setOutlets] = useState<OutletMaster[]>(INITIAL_OUTLETS);
+  // Core Data. These start empty on purpose: the server is the only source of
+  // records, so anything shown before its answer arrives would be fiction.
+  const [disruptions, setDisruptions] = useState<Disruption[]>([]);
+  const [outlets, setOutlets] = useState<OutletMaster[]>([]);
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>({
-    lastSyncTime: '08/09/2026 11:30:00',
-    lastAttemptedTime: '08/09/2026 11:30:00',
-    status: 'Success',
-    recordsCount: INITIAL_OUTLETS.length,
-    errorDetails: null,
-  });
+  // Idle until the server says otherwise, so the header never reports a sync
+  // time or a record count that nothing actually produced.
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(idleStatus());
   // The three feeds report independently; the header keeps showing the master.
   const [syncStatuses, setSyncStatuses] = useState<SyncStatuses>({
-    outletMaster: {
-      lastSyncTime: '08/09/2026 11:30:00',
-      lastAttemptedTime: '08/09/2026 11:30:00',
-      status: 'Success',
-      recordsCount: INITIAL_OUTLETS.length,
-      errorDetails: null,
-    },
+    outletMaster: idleStatus(),
     disruptionTimings: {
       lastSyncTime: null,
       lastAttemptedTime: null,
@@ -271,10 +272,13 @@ export default function App() {
           fetchSyncStatuses(),
         ]);
 
-      if (fetchedDisruptions && fetchedDisruptions.length > 0) {
+      // No length check: an empty list means every record was deleted, and the
+      // screen has to follow. Guarding on length here is what kept deleted
+      // records on screen until the next poll overwrote them.
+      if (fetchedDisruptions) {
         setDisruptions(fetchedDisruptions);
       }
-      if (fetchedOutlets && fetchedOutlets.length > 0) {
+      if (fetchedOutlets) {
         setOutlets(fetchedOutlets);
       }
       if (fetchedConfig) {
@@ -287,7 +291,13 @@ export default function App() {
         setSyncStatuses(fetchedStatuses);
       }
     } catch (err) {
+      // The screen stays empty rather than showing sample records, so say why.
       console.warn('Error loading initial data:', err);
+      showToast(
+        'Could not load data from the server',
+        err instanceof Error ? err.message : 'Refresh to try again.',
+        'error'
+      );
     }
   }, []);
 

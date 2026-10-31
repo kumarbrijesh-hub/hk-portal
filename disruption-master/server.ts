@@ -12,7 +12,6 @@ import {
   DEFAULT_CC_POCS,
   DEFAULT_ISSUE_MASTER,
 } from './src/data/defaultConfig';
-import { INITIAL_DISRUPTIONS } from './src/data/initialDisruptions';
 import {
   AppConfig,
   Disruption,
@@ -339,19 +338,28 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-// Initial DB state
+// Initial DB state.
+//
+// Disruptions start empty: they are operational records, and seeding sample
+// incidents means a store that never lost power shows up in the tracker and in
+// reports. A deleted record also used to come back here whenever the volume was
+// replaced, because the seed was written in as if it were real.
+//
+// Outlets are seeded because they are a lookup master, not a record of events:
+// a sync or a CSV upload replaces the whole list, and without something in it
+// no disruption can be logged at all.
 let db: DatabaseStore = {
   users: [],
   outlets: [...INITIAL_OUTLETS],
-  disruptions: [...INITIAL_DISRUPTIONS],
+  disruptions: [],
   config: migrateConfig(DEFAULT_CONFIG),
   syncStatuses: {
     outletMaster: {
-      lastSyncTime: '08/09/2026 11:30:00',
-      lastAttemptedTime: '08/09/2026 11:30:00',
-      status: 'Success',
+      lastSyncTime: null,
+      lastAttemptedTime: null,
+      status: 'Idle',
       recordsCount: INITIAL_OUTLETS.length,
-      errorDetails: null,
+      errorDetails: 'Running on the seeded store master. Sync or upload the real one.',
       source: 'Seed Master Dataset',
     },
     disruptionTimings: idleSyncStatus(),
