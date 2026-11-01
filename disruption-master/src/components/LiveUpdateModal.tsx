@@ -10,6 +10,7 @@ import { hoursBetween } from '../utils/dateUtils';
 import { StatusBadge } from './StatusBadge';
 import { SubIssuePicker } from './SubIssuePicker';
 import { readSubIssues } from '../utils/issueTaxonomy';
+import { liveUpdateEntries } from '../utils/liveUpdateLog';
 
 interface LiveUpdateModalProps {
   disruption: Disruption;
@@ -39,6 +40,16 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   const isIssueRequired = RESOLVED_STATUSES_REQUIRING_ISSUE.includes(targetStatus);
+
+  /**
+   * Everything already posted against this disruption, oldest first.
+   *
+   * Shown read-only above the box so whoever is adding the next line can see
+   * what has already been said and carry the story on from there, instead of
+   * repeating a step or contradicting one. Who wrote each line and when is the
+   * audit log's job, so only the sentences appear here.
+   */
+  const postedUpdates = useMemo(() => liveUpdateEntries(disruption), [disruption]);
 
   /**
    * Asked only on the update that first marks the technician as arrived. Once
@@ -156,6 +167,32 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
           <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-xs">
             <span className="text-slate-500">Current Disruption Status:</span>
             <StatusBadge status={disruption.currentStatus} />
+          </div>
+
+          {/* What has already been posted, so the next line continues the story. */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50/70">
+            <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-700">Live Updates so far</span>
+              <span className="text-[11px] text-slate-500">
+                {postedUpdates.length === 0
+                  ? 'none yet'
+                  : `${postedUpdates.length} update${postedUpdates.length === 1 ? '' : 's'}`}
+              </span>
+            </div>
+            {postedUpdates.length === 0 ? (
+              <p className="px-3 py-2.5 text-[11px] text-slate-500">
+                Nothing posted yet. This will be the first update on this disruption.
+              </p>
+            ) : (
+              <ol className="max-h-40 overflow-y-auto px-3 py-2 space-y-1.5">
+                {postedUpdates.map((entry, i) => (
+                  <li key={entry.updatedAt + i} className="flex gap-2 text-[11px] leading-relaxed">
+                    <span className="font-semibold text-slate-400 shrink-0 tabular-nums">{i + 1}.</span>
+                    <span className="text-slate-700">{entry.text}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
           </div>
 
           {/* Target Status Selection */}

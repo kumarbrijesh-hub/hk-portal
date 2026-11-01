@@ -3,7 +3,7 @@ import { toPng } from 'html-to-image';
 import { Disruption } from '../types';
 import { getCurrentISTDate, getReportFileTimestamp } from './dateUtils';
 import { readIssues, readSubIssues } from './issueTaxonomy';
-import { liveUpdateReportBlock } from './liveUpdateLog';
+import { disruptionDurationHours, liveUpdateReportBlock } from './liveUpdateLog';
 
 /**
  * Worst store first.
@@ -135,6 +135,12 @@ export async function exportActiveReportToPNG(elementId: string, customFilename?
   }
 }
 
+/** Duration as a bare number for a spreadsheet cell, blank while it is unknown. */
+function durationCell(d: Disruption): string {
+  const hours = disruptionDurationHours(d);
+  return hours === null ? '' : hours.toFixed(2);
+}
+
 export function exportActiveReportToCSV(unorderedDisruptions: Disruption[], activeFiltersDescription?: string) {
   const disruptions = orderByDisruptionVolume(unorderedDisruptions);
   const { formattedIST } = getCurrentISTDate();
@@ -154,6 +160,8 @@ export function exportActiveReportToCSV(unorderedDisruptions: Disruption[], acti
     'Bucket',
     'Ticket ID',
     'Disruption Start Time (IST)',
+    'Disruption End Time (IST)',
+    'Disruption Duration (Hrs)',
     'Current Status',
     'Issue',
     'Sub Issues',
@@ -176,6 +184,8 @@ export function exportActiveReportToCSV(unorderedDisruptions: Disruption[], acti
     d.bucket,
     d.ticketId || 'N/A',
     d.disruptionStartDateTime,
+    d.endTime || '',
+    durationCell(d),
     d.currentStatus,
     `"${readIssues(d).join(' | ').replace(/"/g, '""')}"`,
     `"${readSubIssues(d).join(' | ').replace(/"/g, '""')}"`,
@@ -228,6 +238,8 @@ export function exportActiveReportToExcel(unorderedDisruptions: Disruption[], ac
     'Bucket': d.bucket,
     'Ticket ID': d.ticketId || 'N/A',
     'Disruption Start Time (IST)': d.disruptionStartDateTime,
+    'Disruption End Time (IST)': d.endTime || '',
+    'Disruption Duration (Hrs)': disruptionDurationHours(d) ?? '',
     'Current Status': d.currentStatus,
     'Issue': readIssues(d).join(' | ') || 'N/A',
     'Sub Issues': readSubIssues(d).join(' | ') || 'N/A',
@@ -253,6 +265,8 @@ export function exportActiveReportToExcel(unorderedDisruptions: Disruption[], ac
     { wch: 18 }, // Bucket
     { wch: 16 }, // Ticket ID
     { wch: 22 }, // Start Time
+    { wch: 22 }, // End Time
+    { wch: 20 }, // Duration (Hrs)
     { wch: 18 }, // Current Status
     { wch: 24 }, // Issue
     { wch: 26 }, // Sub Issues

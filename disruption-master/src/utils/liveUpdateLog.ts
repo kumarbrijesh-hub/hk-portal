@@ -15,6 +15,7 @@
  */
 
 import { Disruption, DisruptionUpdateHistory } from '../types';
+import { hoursBetween } from './dateUtils';
 
 /** Oldest first, so the log reads top to bottom in the order things happened. */
 function orderedHistory(d: Disruption): DisruptionUpdateHistory[] {
@@ -87,6 +88,23 @@ export function cumulativeLiveUpdate(d: Disruption): string {
  * and forward becomes self-contained - which disruption, which outlet, who
  * holds the AMC, whose machine it is, and who on CC owns it.
  */
+/**
+ * How long the disruption ran: end time minus start time, in hours.
+ *
+ * Empty until the end time is known, which normally arrives with the timing
+ * sheet or a timing CSV upload. Never a running count - a disruption with no
+ * end time has no duration yet, and saying otherwise would read as fact.
+ */
+export function disruptionDurationHours(d: Disruption): number | null {
+  return hoursBetween(d.disruptionStartDateTime, d.endTime);
+}
+
+/** The same figure as text, for a report cell or a table. */
+export function disruptionDurationLabel(d: Disruption): string {
+  const hours = disruptionDurationHours(d);
+  return hours === null ? '' : `${hours.toFixed(2)} Hrs`;
+}
+
 export function liveUpdateReportBlock(d: Disruption): string {
   const lines: string[] = [];
 
@@ -101,6 +119,11 @@ export function liveUpdateReportBlock(d: Disruption): string {
   detail('Machine / Current Vendor', d.currentVendor || d.vendor);
   detail('Cold POC', d.coldPocName2 || d.pocName);
   detail('CC POC', d.ccPoc);
+  // How long the store was actually down, end minus start. Separate from the
+  // resolution TAT: that one is measured to the resolving step, this one to the
+  // end time the timing sheet reports.
+  detail('Disruption End Time', d.endTime);
+  detail('Disruption Duration', disruptionDurationLabel(d));
 
   const log = cumulativeLiveUpdate(d);
   if (log) {

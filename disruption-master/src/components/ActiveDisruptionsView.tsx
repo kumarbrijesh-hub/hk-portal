@@ -30,6 +30,7 @@ import {
 } from '../utils/reportExport';
 import { getCurrentISTDate, formatReportGeneratedTimestamp, calculateDurationHours } from '../utils/dateUtils';
 import { readIssues, readSubIssues } from '../utils/issueTaxonomy';
+import { disruptionDurationHours } from '../utils/liveUpdateLog';
 import { auditHoldState, expiredAuditHolds, formatHoursMinutes } from '../utils/auditHold';
 
 interface ActiveDisruptionsViewProps {
@@ -37,6 +38,18 @@ interface ActiveDisruptionsViewProps {
   onOpenLiveUpdate: (disruption: Disruption) => void;
   onOpenHistory: (disruption: Disruption) => void;
   onRefreshData?: () => void;
+}
+
+/**
+ * Hours to show in the Dur column.
+ *
+ * While a disruption is open this is a running count from its start. Once an
+ * end time is on the record - normally from the timing sheet or a timing CSV -
+ * it becomes the settled end-minus-start figure, so the number stops climbing
+ * past the moment the store actually came back up.
+ */
+function elapsedOrFinalHours(d: Disruption): number | null {
+  return disruptionDurationHours(d) ?? calculateDurationHours(d.disruptionStartDateTime);
 }
 
 export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
@@ -950,7 +963,7 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                 standardActiveDisruptions.map((d, index) => {
                   const isPinned = activeRowId === d.disruptionId;
                   const isDuplicate = duplicateOutletIds.has((d.outletId || '').trim());
-                  const durationHours = calculateDurationHours(d.disruptionStartDateTime);
+                  const durationHours = elapsedOrFinalHours(d);
                   const durHrs = durationHours === null ? '-' : durationHours.toFixed(1);
 
                   return (
@@ -1123,7 +1136,7 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                 <tbody className="divide-y divide-purple-100 bg-white">
                   {auditActiveDisruptions.map((d, index) => {
                     const isPinned = activeRowId === d.disruptionId;
-                    const durationHours = calculateDurationHours(d.disruptionStartDateTime);
+                    const durationHours = elapsedOrFinalHours(d);
                     const durHrs = durationHours === null ? '-' : durationHours.toFixed(1);
                     const hold = auditHoldState(d);
 
