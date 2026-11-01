@@ -4,3 +4,12 @@ data
 .git
 .env
 bun.lock
+
+# Dead source-overlay generations. appsrc and srcpack were replaced by srcv3
+# long ago and the image build deletes them on its first line, so they only
+# ever travelled with the build context as weight. Keeping them out of the
+# context keeps the staged bundle smaller for every build from here on.
+appsrc.part-*.gz
+appsrc.tar.gz
+srcpack.part-*.gz
+srcpack.tar.gz
