@@ -7,7 +7,6 @@ import {
   SyncStatus,
   SyncStatuses,
 } from '../types';
-import { DEFAULT_CONFIG } from '../data/defaultConfig';
 
 const API_BASE = '/api';
 
@@ -216,15 +215,11 @@ export async function editLiveUpdate(
 }
 
 export async function fetchConfig(): Promise<AppConfig> {
-  try {
-    const res = await fetch(`${API_BASE}/config`);
-    if (res.ok) {
-      return await res.json();
-    }
-  } catch (err) {
-    console.warn('API fetchConfig failed, using fallback:', err);
+  const res = await fetch(`${API_BASE}/config`);
+  if (!res.ok) {
+    throw new Error(`Could not load the saved settings (${res.status}).`);
   }
-  return DEFAULT_CONFIG;
+  return res.json();
 }
 
 export async function updateConfig(config: Partial<AppConfig>): Promise<AppConfig> {

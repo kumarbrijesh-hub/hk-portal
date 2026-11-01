@@ -6,6 +6,7 @@ import {
   RefreshCw,
   CheckCircle,
   AlertCircle,
+  AlertTriangle,
   Clock,
   Layers,
   Database,
@@ -46,6 +47,12 @@ interface ConfigViewProps {
   syncingSource: SheetSourceKey | null;
   /** Masters are read-only for everyone but the owner account. */
   isOwner: boolean;
+  /**
+   * False while the saved settings have not been read back from the server.
+   * What is rendered then is the built-in defaults, so saving is blocked: it
+   * would overwrite the real issue taxonomy and status list with placeholders.
+   */
+  configLoaded: boolean;
   onSaveConfig: (updated: AppConfig) => Promise<void>;
   onSyncNow: () => void;
   onSyncSource: (key: SheetSourceKey) => Promise<void>;
@@ -73,6 +80,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
   isSyncing,
   syncingSource,
   isOwner,
+  configLoaded,
   onSaveConfig,
   onSyncNow,
   onSyncSource,
@@ -865,6 +873,11 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
                 <CheckCircle className="w-4 h-4" />
                 Configuration updated and background sync scheduled!
               </span>
+            ) : !configLoaded ? (
+              <span className="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                Showing built-in defaults - the saved settings did not load. Refresh before changing anything.
+              </span>
             ) : (
               <span className="text-xs text-slate-300">
                 All settings are stored in application state and cloud database.
@@ -874,12 +887,26 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
 
           <button
             type="submit"
-            disabled={isSaving || !isOwner}
-            title={isOwner ? 'Save master configuration' : 'Only the owner account can save these settings'}
+            disabled={isSaving || !isOwner || !configLoaded}
+            title={
+              !configLoaded
+                ? 'The saved settings did not load, so saving would overwrite them with defaults'
+                : isOwner
+                  ? 'Save master configuration'
+                  : 'Only the owner account can save these settings'
+            }
             className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold shadow-md transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isOwner ? <Save className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
-            <span>{isSaving ? 'SAVING...' : isOwner ? 'SAVE CONFIGURATION' : 'OWNER ONLY'}</span>
+            {isOwner && configLoaded ? <Save className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+            <span>
+              {isSaving
+                ? 'SAVING...'
+                : !configLoaded
+                  ? 'SETTINGS NOT LOADED'
+                  : isOwner
+                    ? 'SAVE CONFIGURATION'
+                    : 'OWNER ONLY'}
+            </span>
           </button>
         </div>
       </form>

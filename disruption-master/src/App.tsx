@@ -201,7 +201,12 @@ export default function App() {
   // records, so anything shown before its answer arrives would be fiction.
   const [disruptions, setDisruptions] = useState<Disruption[]>([]);
   const [outlets, setOutlets] = useState<OutletMaster[]>([]);
+  // DEFAULT_CONFIG keeps the status and issue dropdowns populated so an
+  // incident can still be logged while the server is unreachable, but it is not
+  // the saved settings. Until the real ones arrive, saving is refused: writing
+  // these defaults back would wipe the issue taxonomy and status list.
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
+  const [configLoaded, setConfigLoaded] = useState(false);
   // Idle until the server says otherwise, so the header never reports a sync
   // time or a record count that nothing actually produced.
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(idleStatus());
@@ -260,42 +265,53 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 4000);
   };
 
-  // Load initial data
+  /**
+   * Loads everything the console needs, each piece on its own.
+   *
+   * allSettled rather than all: one endpoint failing must not blank the
+   * screen. A 500 on the settings route should not also cost the disruption
+   * list, which is the thing people are here to read.
+   *
+   * Nothing falls back to sample data. Where a piece does not arrive, its
+   * section is left as it was and the failure is named, because a record that
+   * is not in the database must never be drawn as though it were.
+   */
   const loadInitialData = useCallback(async () => {
-    try {
-      const [fetchedDisruptions, fetchedOutlets, fetchedConfig, fetchedStatus, fetchedStatuses] =
-        await Promise.all([
-          fetchDisruptions(),
-          fetchOutlets(),
-          fetchConfig(),
-          fetchSyncStatus(),
-          fetchSyncStatuses(),
-        ]);
+    const [disruptionsRes, outletsRes, configRes, statusRes, statusesRes] = await Promise.allSettled([
+      fetchDisruptions(),
+      fetchOutlets(),
+      fetchConfig(),
+      fetchSyncStatus(),
+      fetchSyncStatuses(),
+    ]);
 
-      // No length check: an empty list means every record was deleted, and the
-      // screen has to follow. Guarding on length here is what kept deleted
-      // records on screen until the next poll overwrote them.
-      if (fetchedDisruptions) {
-        setDisruptions(fetchedDisruptions);
+    // No length check: an empty list means every record was deleted, and the
+    // screen has to follow. Guarding on length here is what kept deleted
+    // records on screen until the next poll overwrote them.
+    if (disruptionsRes.status === 'fulfilled') setDisruptions(disruptionsRes.value);
+    if (outletsRes.status === 'fulfilled') setOutlets(outletsRes.value);
+    if (configRes.status === 'fulfilled') {
+      setConfig(configRes.value);
+      setConfigLoaded(true);
+    }
+    if (statusRes.status === 'fulfilled') setSyncStatus(statusRes.value);
+    if (statusesRes.status === 'fulfilled') setSyncStatuses(statusesRes.value);
+
+    const failures = [
+      ['Disruption list', disruptionsRes],
+      ['Store master', outletsRes],
+      ['Settings', configRes],
+      ['Sync status', statusRes],
+      ['Feed statuses', statusesRes],
+    ].filter(([, r]) => (r as PromiseSettledResult<unknown>).status === 'rejected');
+
+    if (failures.length > 0) {
+      for (const [, r] of failures) {
+        console.warn('Error loading initial data:', (r as PromiseRejectedResult).reason);
       }
-      if (fetchedOutlets) {
-        setOutlets(fetchedOutlets);
-      }
-      if (fetchedConfig) {
-        setConfig(fetchedConfig);
-      }
-      if (fetchedStatus) {
-        setSyncStatus(fetchedStatus);
-      }
-      if (fetchedStatuses) {
-        setSyncStatuses(fetchedStatuses);
-      }
-    } catch (err) {
-      // The screen stays empty rather than showing sample records, so say why.
-      console.warn('Error loading initial data:', err);
       showToast(
-        'Could not load data from the server',
-        err instanceof Error ? err.message : 'Refresh to try again.',
+        'Could not load everything from the server',
+        `${failures.map(([label]) => label).join(', ')} did not load. Refresh to try again.`,
         'error'
       );
     }
@@ -311,18 +327,17 @@ export default function App() {
   useEffect(() => {
     if (!auth?.authenticated) return;
     const pollInterval = setInterval(async () => {
-      try {
-        const [dList, sStatus, sStatuses] = await Promise.all([
-          fetchDisruptions(),
-          fetchSyncStatus(),
-          fetchSyncStatuses(),
-        ]);
-        if (dList) setDisruptions(dList);
-        if (sStatus) setSyncStatus(sStatus);
-        if (sStatuses) setSyncStatuses(sStatuses);
-      } catch {
-        // silent polling catch
-      }
+      // Each piece applies on its own, so a failing status route does not also
+      // freeze the disruption list. A poll that fails stays quiet: the next one
+      // is eight seconds away, and the load path already reports a real outage.
+      const [dList, sStatus, sStatuses] = await Promise.allSettled([
+        fetchDisruptions(),
+        fetchSyncStatus(),
+        fetchSyncStatuses(),
+      ]);
+      if (dList.status === 'fulfilled') setDisruptions(dList.value);
+      if (sStatus.status === 'fulfilled') setSyncStatus(sStatus.value);
+      if (sStatuses.status === 'fulfilled') setSyncStatuses(sStatuses.value);
     }, 8000);
 
     return () => clearInterval(pollInterval);
@@ -395,6 +410,14 @@ export default function App() {
 
   // Config save handler
   const handleSaveConfig = async (updatedConfig: AppConfig) => {
+    // What is on screen would be the built-in defaults, not the saved settings,
+    // so saving here would replace the real issue taxonomy and status list with
+    // placeholders.
+    if (!configLoaded) {
+      const message = 'The saved settings never loaded, so there is nothing safe to save over. Refresh and try again.';
+      showToast('Cannot save settings', message, 'error');
+      throw new Error(message);
+    }
     const saved = await updateConfig(updatedConfig);
     setConfig(saved);
     showToast('Configuration Saved', 'Master settings and sync rules updated.', 'success');
@@ -557,6 +580,7 @@ export default function App() {
             isSyncing={isSyncing}
             syncingSource={syncingSource}
             isOwner={isOwner}
+            configLoaded={configLoaded}
             onSaveConfig={handleSaveConfig}
             onSyncNow={handleSyncNow}
             onSyncSource={handleSyncSource}
