@@ -10,6 +10,7 @@ import {
   RotateCcw,
   MessageSquarePlus,
   History,
+  Pencil,
   Calendar,
   Layers,
   Image as ImageIcon,
@@ -37,6 +38,12 @@ interface ActiveDisruptionsViewProps {
   allDisruptions: Disruption[];
   onOpenLiveUpdate: (disruption: Disruption) => void;
   onOpenHistory: (disruption: Disruption) => void;
+  /**
+   * Opens the Bucket / Ticket ID correction. Open to everyone, unlike delete:
+   * both fields are reversible and every change is attributed in the audit
+   * trail.
+   */
+  onOpenEditDetails?: (disruption: Disruption) => void;
   onRefreshData?: () => void;
 }
 
@@ -56,6 +63,7 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
   allDisruptions,
   onOpenLiveUpdate,
   onOpenHistory,
+  onOpenEditDetails,
   onRefreshData,
 }) => {
   // Filter states
@@ -1084,6 +1092,19 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                           >
                             Audit
                           </button>
+                          {onOpenEditDetails && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onOpenEditDetails(d);
+                              }}
+                              className="px-2.5 py-1 rounded bg-white hover:bg-slate-100 text-slate-600 font-medium text-[11px] transition border border-slate-300 cursor-pointer"
+                              title="Edit Bucket / Ticket ID"
+                            >
+                              Edit
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1261,6 +1282,19 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                             >
                               Audit
                             </button>
+                            {onOpenEditDetails && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onOpenEditDetails(d);
+                                }}
+                                className="px-2.5 py-1 rounded bg-white hover:bg-slate-100 text-slate-600 font-medium text-[11px] transition border border-slate-300 cursor-pointer"
+                                title="Edit Bucket / Ticket ID"
+                              >
+                                Edit
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1360,6 +1394,16 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                     <History className="w-3.5 h-3.5" />
                     <span>Audit ({d.updateHistory?.length || 1})</span>
                   </button>
+                  {onOpenEditDetails && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenEditDetails(d)}
+                      className="px-3 py-1.5 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded text-xs font-medium flex items-center gap-1.5 transition"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      <span>Edit</span>
+                    </button>
+                  )}
                 </div>
               </div>
             ))

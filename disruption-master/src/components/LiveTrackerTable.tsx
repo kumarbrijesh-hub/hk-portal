@@ -11,6 +11,7 @@ import {
   Check,
   Columns,
   Trash2,
+  Pencil,
   Pin,
   FileSpreadsheet,
   Layers,
@@ -39,6 +40,11 @@ interface LiveTrackerTableProps {
   disruptions: Disruption[];
   onOpenLiveUpdate: (disruption: Disruption) => void;
   onOpenHistory: (disruption: Disruption) => void;
+  /**
+   * Opens the Bucket / Ticket ID correction. Available to everyone, unlike
+   * delete: both fields are reversible and the change is attributed.
+   */
+  onOpenEditDetails?: (disruption: Disruption) => void;
   /** Delete is shown only to the owner account. */
   isOwner?: boolean;
   onDeleteDisruption?: (disruption: Disruption) => Promise<void>;
@@ -48,6 +54,7 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
   disruptions,
   onOpenLiveUpdate,
   onOpenHistory,
+  onOpenEditDetails,
   isOwner = false,
   onDeleteDisruption,
 }) => {
@@ -844,6 +851,24 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
                           <span>History ({d.updateHistory?.length || 1})</span>
                         </button>
 
+                        {/* Bucket and Ticket ID both tend to settle after the
+                            record is already on the board, so correcting them
+                            is open to the whole team. */}
+                        {onOpenEditDetails && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenEditDetails(d);
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-[11px] transition border border-slate-200 cursor-pointer"
+                            title="Edit Bucket / Ticket ID"
+                          >
+                            <Pencil className="w-3 h-3" />
+                            <span>Edit</span>
+                          </button>
+                        )}
+
                         {/* Deleting is owner-only: a wrong entry by a teammate is
                             the owner's to remove, not the team's. */}
                         {isOwner &&
@@ -1005,6 +1030,18 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
                 >
                   History
                 </button>
+                {onOpenEditDetails && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenEditDetails(d);
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-xs transition border border-slate-200"
+                  >
+                    Edit
+                  </button>
+                )}
               </div>
             </div>
           ))

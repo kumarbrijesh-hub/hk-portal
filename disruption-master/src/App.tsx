@@ -14,6 +14,7 @@ import { PerformanceSummaryView } from './components/PerformanceSummaryView';
 import { WeeklyDisruptionReport } from './components/WeeklyDisruptionReport';
 import { LiveUpdateModal } from './components/LiveUpdateModal';
 import { UpdateHistoryModal } from './components/UpdateHistoryModal';
+import { EditDetailsModal } from './components/EditDetailsModal';
 import { SyncSheetModal } from './components/SyncSheetModal';
 import {
   AppConfig,
@@ -258,6 +259,7 @@ export default function App() {
   const [isSyncSheetModalOpen, setIsSyncSheetModalOpen] = useState(false);
   const [selectedDisruptionForUpdate, setSelectedDisruptionForUpdate] = useState<Disruption | null>(null);
   const [selectedDisruptionForHistory, setSelectedDisruptionForHistory] = useState<Disruption | null>(null);
+  const [selectedDisruptionForEdit, setSelectedDisruptionForEdit] = useState<Disruption | null>(null);
   const [toastMessage, setToastMessage] = useState<{ title: string; desc?: string; type: 'success' | 'info' | 'error' } | null>(null);
 
   const showToast = (title: string, desc?: string, type: 'success' | 'info' | 'error' = 'success') => {
@@ -549,6 +551,7 @@ export default function App() {
               disruptions={disruptions}
               onOpenLiveUpdate={setSelectedDisruptionForUpdate}
               onOpenHistory={setSelectedDisruptionForHistory}
+              onOpenEditDetails={setSelectedDisruptionForEdit}
               isOwner={isOwner}
               onDeleteDisruption={handleDeleteDisruption}
             />
@@ -561,6 +564,7 @@ export default function App() {
             allDisruptions={disruptions}
             onOpenLiveUpdate={setSelectedDisruptionForUpdate}
             onOpenHistory={setSelectedDisruptionForHistory}
+            onOpenEditDetails={setSelectedDisruptionForEdit}
             onRefreshData={loadInitialData}
           />
         )}
@@ -612,6 +616,20 @@ export default function App() {
           onClose={() => setSelectedDisruptionForHistory(null)}
           onDisruptionUpdated={(updated) => {
             handleDisruptionUpdated(updated);
+          }}
+        />
+      )}
+
+      {/* Correct the Bucket / Ticket ID on a record already on the board. Open
+          to the whole team: both fields are reversible and attributed. */}
+      {selectedDisruptionForEdit && (
+        <EditDetailsModal
+          disruption={selectedDisruptionForEdit}
+          currentUser={currentUser}
+          onClose={() => setSelectedDisruptionForEdit(null)}
+          onSuccess={(updated) => {
+            handleDisruptionUpdated(updated);
+            setSelectedDisruptionForEdit(null);
           }}
         />
       )}

@@ -1922,24 +1922,16 @@ async function startServer() {
       }
       incomingRacFrt = Math.round(n);
     }
-    if (
-      targetStatus === STATUS_REQUIRING_RAC_FRT &&
-      previousStatus !== STATUS_REQUIRING_RAC_FRT &&
-      disruption.mstFrtMins === undefined &&
-      incomingRacFrt === undefined
-    ) {
-      return res.status(400).json({
-        error: 'Enter how many minutes the RAC technician took to reach site before setting RAC Visited.',
-        needs: 'racFrtMins',
-      });
-    }
+    // RAC arrival time is asked for on the update that first sets RAC Visited,
+    // but it no longer blocks it. A malformed number is still refused above -
+    // that is a typo, not a blank - while leaving it blank records the status
+    // change and leaves mstFrtMins unset, which reads as "not reported" rather
+    // than as a zero-minute arrival.
 
-    const resolvedStatuses = ['Resolved by RAC', 'Resolved by OEM', 'Resolved by Dealer', 'Resolved by CC'];
-    if (resolvedStatuses.includes(targetStatus) && effectiveSubIssues.length === 0) {
-      return res
-        .status(400)
-        .json({ error: `Select at least one Sub Issue when setting status to "${targetStatus}".` });
-    }
+    // Sub-issue tagging is no longer refused on a resolved status. An operator
+    // who knows the store is back up but not yet which sub-issue it was had no
+    // way to say so, and an update nobody could file is worse than one that is
+    // tagged a few minutes late. The tagging can be added on any later update.
 
     const historyItem: DisruptionUpdateHistory = {
       updateId: `UPD-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -2080,16 +2072,13 @@ async function startServer() {
 
     const effectiveSubIssues = incomingSubIssues ?? readSubIssues(existing);
 
-    const resolvedStatuses = ['Resolved by RAC', 'Resolved by OEM', 'Resolved by Dealer', 'Resolved by CC'];
-    if (resolvedStatuses.includes(targetStatus) && effectiveSubIssues.length === 0) {
-      return res.status(400).json({ error: 'Select at least one Sub Issue before resolving.' });
-    }
-
+    // Neither the sub-issue tagging nor a Breakdown's ticket ID is refused here
+    // any more. This endpoint is what the Bucket / Ticket ID edit posts to, and
+    // a record that was resolved before it was tagged could not be edited at
+    // all while the first check stood. A Breakdown with no ticket still shows
+    // as missing in the tracker and in the export, which is the right place to
+    // chase it from.
     const effectiveIssues = deriveIssues(effectiveSubIssues, db.config.issueMaster);
-
-    if (updates.bucket === 'Breakdown' && !updates.ticketId && !existing.ticketId) {
-      return res.status(400).json({ error: 'Disruption Ticket ID is mandatory for Breakdown.' });
-    }
 
     // The Disruption ID is derived from outlet + start minute, so letting either
     // change here would leave the ID contradicting the record it names.

@@ -87,20 +87,12 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
       return;
     }
 
-    if (isIssueRequired && selectedSubIssues.length === 0) {
-      setError(`Select at least one sub-issue for status "${targetStatus}".`);
-      return;
-    }
-
-    if (needsRacFrt && (racFrtValue === null || racFrtValue === '' || Number(racFrtValue) < 0)) {
-      setError(
-        racFrtMode === 'minutes'
-          ? 'Enter how many minutes the RAC technician took to reach site.'
-          : 'Pick the time the RAC technician reached site.'
-      );
-      return;
-    }
-
+    // Nothing else blocks the post. The sub-issue tagging and the RAC arrival
+    // time used to be refused here, which meant an operator with news to record
+    // and no answer to those two had no way to record it at all - and the news
+    // is what the log is for. Both are still asked for, prominently, and both
+    // can still be filled in on a later update; they just no longer stand
+    // between someone and writing down what happened.
     setIsSubmitting(true);
 
     try {
@@ -113,7 +105,12 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
           updatedBy: currentUser || disruption.ccPoc || 'Operator',
           newStatus: targetStatus,
           subIssues: selectedSubIssues,
-          ...(needsRacFrt ? { racFrtMins: Number(racFrtValue) } : {}),
+          // Only sent when it was actually filled in. Sending Number('') would
+          // post a confident 0, which reads as "the technician was already on
+          // site" rather than "nobody said".
+          ...(needsRacFrt && racFrtValue !== null && String(racFrtValue).trim() !== ''
+            ? { racFrtMins: Number(racFrtValue) }
+            : {}),
         }),
       });
 
@@ -226,11 +223,11 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
                 issueMaster={issueMaster}
                 selected={selectedSubIssues}
                 onChange={setSelectedSubIssues}
-                required={isIssueRequired}
                 idPrefix="modal-sub-issue"
               />
               <p className="text-[11px] text-slate-600">
                 Pick every sub-issue that applied. The issue category is filled in from the master automatically.
+                {isIssueRequired && ' Worth filling in for this status, but you can post without it and tag later.'}
               </p>
             </div>
           )}
@@ -242,7 +239,7 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
               <div className="flex items-center justify-between">
                 <p className="text-xs font-bold text-amber-900">
                   How long did the RAC technician take to reach site?{' '}
-                  <span className="text-rose-600">*</span>
+                  <span className="font-normal text-amber-700">(optional)</span>
                 </p>
                 <div className="flex items-center gap-1 text-[10px]">
                   <button

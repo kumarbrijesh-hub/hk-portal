@@ -1,5 +1,11 @@
 export type BucketType = 'False Alarm / Invalid' | 'Non Breakdown' | 'Breakdown';
 
+/**
+ * The bucket dropdown, in the order it is offered. Shared by the create form
+ * and the post-creation edit so the two lists cannot drift apart.
+ */
+export const BUCKET_OPTIONS: BucketType[] = ['Breakdown', 'Non Breakdown', 'False Alarm / Invalid'];
+
 export type CurrentStatus =
   | 'No Update'
   | 'RAC Aligned'

@@ -195,3 +195,98 @@ export function hoursBetween(startIST?: string, endIST?: string): number | null 
   if (diffMs < 0) return null;
   return Number((diffMs / (1000 * 60 * 60)).toFixed(2));
 }
+
+/**
+ * Reads a disruption start that was typed or pasted as one string.
+ *
+ * The start used to be collected as a separate date picker and time box, which
+ * meant a start copied from a sheet or a chat had to be split by hand before it
+ * could be entered. This takes the whole thing at once.
+ *
+ * Accepted, with '-', '/' or '.' between the date parts and a space or 'T'
+ * before the time:
+ *
+ *   YY-MM-DD HH:MM        26-11-10 14:35
+ *   YYYY-MM-DD HH:MM:SS   2026-11-10 14:35:00
+ *   DD-MM-YYYY HH:MM      10-11-2026 14:35   (year last, when it has 4 digits)
+ *
+ * The time may be left off, and is then midnight. Seconds may be left off, and
+ * are then zero. A two-digit year is read as 20YY: this logs live disruptions,
+ * so a 19xx start is a typo, not a date.
+ *
+ * Returns the pieces the rest of the form already works in - a YYYY-MM-DD date
+ * and an HH:MM:SS time - or null when the string is not a date at all. A
+ * calendar check is part of that: 2026-02-31 is rejected rather than rolled
+ * forward into March, because silently moving someone's start time is worse
+ * than telling them it did not parse.
+ */
+export function parseStartDateTimeInput(
+  raw: string
+): { date: string; time: string } | null {
+  const text = (raw || '').trim();
+  if (!text) return null;
+
+  const match = text.match(
+    /^(\d{1,4})[-/.](\d{1,2})[-/.](\d{1,4})(?:[\sT]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?\s*$/
+  );
+  if (!match) return null;
+
+  const [, first, middle, third, hourRaw, minuteRaw, secondRaw] = match;
+
+  // Which end carries the year: a 4-digit group settles it, otherwise the
+  // leading group is the year, as in the YY-MM-DD the team pastes.
+  let yearRaw: string;
+  let monthRaw: string;
+  let dayRaw: string;
+  if (third.length === 4) {
+    dayRaw = first;
+    monthRaw = middle;
+    yearRaw = third;
+  } else if (first.length === 3) {
+    // Three digits is a mistyped year, not one we should guess at.
+    return null;
+  } else {
+    yearRaw = first;
+    monthRaw = middle;
+    dayRaw = third;
+  }
+
+  const year = yearRaw.length <= 2 ? 2000 + Number(yearRaw) : Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+  const hour = hourRaw === undefined ? 0 : Number(hourRaw);
+  const minute = minuteRaw === undefined ? 0 : Number(minuteRaw);
+  const second = secondRaw === undefined ? 0 : Number(secondRaw);
+
+  if (month < 1 || month > 12) return null;
+  if (day < 1 || day > 31) return null;
+  if (hour > 23 || minute > 59 || second > 59) return null;
+
+  // Rejects a day the month does not have, rather than rolling it over.
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  if (
+    probe.getUTCFullYear() !== year ||
+    probe.getUTCMonth() !== month - 1 ||
+    probe.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  const pad = (n: number, width = 2) => String(n).padStart(width, '0');
+  return {
+    date: `${pad(year, 4)}-${pad(month)}-${pad(day)}`,
+    time: `${pad(hour)}:${pad(minute)}:${pad(second)}`,
+  };
+}
+
+/**
+ * The same value written back out in the shape the field shows, YY-MM-DD
+ * HH:MM:SS, so what the box displays is something parseStartDateTimeInput
+ * reads back unchanged.
+ */
+export function formatStartDateTimeInput(dateStr: string, timeStr: string): string {
+  if (!dateStr) return '';
+  // 2026-11-10 -> 26-11-10; anything that is not a full YYYY-MM-DD is left be.
+  const short = /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr.slice(2) : dateStr;
+  return timeStr ? `${short} ${timeStr}` : short;
+}

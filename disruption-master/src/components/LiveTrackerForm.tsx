@@ -18,6 +18,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import {
+  BUCKET_OPTIONS,
   BucketType,
   CurrentStatus,
   OutletMaster,
@@ -25,7 +26,14 @@ import {
   Disruption,
 } from '../types';
 import { generateDisruptionId } from '../utils/idGenerator';
-import { formatDateTimeIST, formatToIST, getCurrentISTDate, hoursBetween } from '../utils/dateUtils';
+import {
+  formatDateTimeIST,
+  formatStartDateTimeInput,
+  formatToIST,
+  getCurrentISTDate,
+  hoursBetween,
+  parseStartDateTimeInput,
+} from '../utils/dateUtils';
 import { SubIssuePicker } from './SubIssuePicker';
 
 interface LiveTrackerFormProps {
@@ -84,6 +92,30 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
   const initialIST = useMemo(() => getCurrentISTDate(), []);
   const [startDate, setStartDate] = useState(initialIST.dateStr); // YYYY-MM-DD
   const [startTime, setStartTime] = useState(initialIST.timeStr); // HH:MM:SS
+  /**
+   * The start as one line, the way it arrives when it is copied out of a sheet
+   * or a chat. startDate and startTime stay the values everything downstream
+   * reads; this is the box, and it writes into them whenever it parses.
+   *
+   * Keeping the raw text in its own state matters while someone is still
+   * typing: "26-11-1" is a half-finished 26-11-10, and reformatting the box
+   * under the cursor on every keystroke would fight them for it.
+   */
+  const [startInput, setStartInput] = useState(() =>
+    formatStartDateTimeInput(initialIST.dateStr, initialIST.timeStr)
+  );
+  const startInputParsed = useMemo(() => parseStartDateTimeInput(startInput), [startInput]);
+
+  /** Takes the typed or pasted start and, if it reads as one, adopts it. */
+  const handleStartInputChange = (next: string) => {
+    setStartInput(next);
+    const parsed = parseStartDateTimeInput(next);
+    if (parsed) {
+      setStartDate(parsed.date);
+      setStartTime(parsed.time);
+    }
+  };
+
 
   // Other fields. The CC POC is the signed-in operator, so there is nothing to pick.
   const ccPoc = currentUser;
@@ -211,10 +243,17 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
     }
   }, [isIssueMandatory]);
 
+  /**
+   * Drops the current IST minute into the start, for a disruption being logged
+   * as it happens. Also the reset after a successful save, so the visible box
+   * has to move with it or the next entry would open showing the last one's
+   * start.
+   */
   const handleSetCurrentTime = () => {
     const { dateStr, timeStr } = getCurrentISTDate();
     setStartDate(dateStr);
     setStartTime(timeStr);
+    setStartInput(formatStartDateTimeInput(dateStr, timeStr));
   };
 
   const handleSelectOutlet = (outlet: OutletMaster) => {
@@ -237,6 +276,19 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
     // 1. Mandatory Validations
     if (!outletIdInput.trim()) {
       setErrorMessage('Outlet ID is mandatory. Please enter an Outlet ID.');
+      return;
+    }
+    if (!startInput.trim()) {
+      setErrorMessage('Disruption Start is mandatory. Enter it as YY-MM-DD HH:MM.');
+      return;
+    }
+    // The box holds text the parser rejected, so startDate / startTime are
+    // still the last value that did read - submitting now would file the
+    // disruption under a start nobody typed.
+    if (!startInputParsed) {
+      setErrorMessage(
+        `Could not read "${startInput.trim()}" as a date and time. Enter the start as YY-MM-DD HH:MM, for example 26-11-10 14:35.`
+      );
       return;
     }
     if (!startDate || !startTime) {
@@ -699,42 +751,65 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
             <span className="text-xs text-slate-400">Timezone: Asia/Kolkata (IST)</span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Start Date */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Start date and time as one field, so a start copied out of a
+                sheet or a chat can be pasted whole instead of being split
+                across a date picker and a time box by hand. */}
             <div>
-              <label htmlFor="disruption-date" className="block text-xs font-semibold text-slate-700 mb-1">
-                Disruption Start Date <span className="text-rose-500">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label htmlFor="disruption-start" className="block text-xs font-semibold text-slate-700">
+                  Disruption Start (YY-MM-DD HH:MM) <span className="text-rose-500">*</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleSetCurrentTime}
+                  className="text-[10px] font-semibold text-red-600 hover:text-red-700 hover:underline"
+                >
+                  Use current time
+                </button>
+              </div>
               <div className="relative">
                 <input
-                  id="disruption-date"
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-white"
+                  id="disruption-start"
+                  type="text"
+                  value={startInput}
+                  onChange={(e) => handleStartInputChange(e.target.value)}
+                  onBlur={() => {
+                    // Once they are done typing, settle the box on the value
+                    // that was actually taken, so what is on screen and what
+                    // the ID was built from can never disagree.
+                    if (startInputParsed) {
+                      setStartInput(formatStartDateTimeInput(startInputParsed.date, startInputParsed.time));
+                    }
+                  }}
+                  placeholder="26-11-10 14:35"
+                  autoComplete="off"
+                  spellCheck={false}
+                  className={`w-full pl-9 pr-3 py-2 text-xs font-mono rounded-lg border focus:ring-2 bg-white ${
+                    startInput && !startInputParsed
+                      ? 'border-rose-400 focus:ring-rose-500 focus:border-rose-500'
+                      : 'border-slate-300 focus:ring-red-500 focus:border-red-500'
+                  }`}
                   required
                 />
                 <Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               </div>
-            </div>
-
-            {/* Start Time */}
-            <div>
-              <label htmlFor="disruption-time" className="block text-xs font-semibold text-slate-700 mb-1">
-                Disruption Start Time (HH:MM:SS) <span className="text-rose-500">*</span>
-              </label>
-              <div className="relative">
-                <input
-                  id="disruption-time"
-                  type="text"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  placeholder="HH:MM:SS"
-                  className="w-full pl-9 pr-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-white"
-                  required
-                />
-                <Clock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-              </div>
+              {startInput && !startInputParsed ? (
+                <p className="text-[10px] text-rose-600 mt-1 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  Could not read that as a date. Try 26-11-10 14:35 — 2026-11-10 14:35:00 and 10-11-2026 14:35
+                  work too.
+                </p>
+              ) : startInputParsed ? (
+                <p className="text-[10px] text-slate-500 mt-1 flex items-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  Reading as{' '}
+                  <span className="font-mono font-semibold text-slate-700">
+                    {formatDateTimeIST(startInputParsed.date, startInputParsed.time)}
+                  </span>{' '}
+                  IST
+                </p>
+              ) : null}
             </div>
 
             {/* Auto-Generated Disruption ID */}
@@ -801,9 +876,11 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
                   className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-red-500 font-medium"
                   required
                 >
-                  <option value="Breakdown">Breakdown</option>
-                  <option value="Non Breakdown">Non Breakdown</option>
-                  <option value="False Alarm / Invalid">False Alarm / Invalid</option>
+                  {BUCKET_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
                 </select>
                 <Tag className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               </div>
