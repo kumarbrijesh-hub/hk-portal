@@ -280,13 +280,15 @@ export function parseStartDateTimeInput(
 }
 
 /**
- * The same value written back out in the shape the field shows, YY-MM-DD
- * HH:MM:SS, so what the box displays is something parseStartDateTimeInput
- * reads back unchanged.
+ * The same value written back out in the shape the field shows: the full
+ * YYYY-MM-DD HH:MM:SS the team works in, which is also what a start copied out
+ * of a sheet looks like. parseStartDateTimeInput reads this back unchanged, so
+ * the box and the Disruption ID it generated can never disagree.
+ *
+ * The shorter YY-MM-DD is still accepted on the way in - it is just not what
+ * gets written back.
  */
 export function formatStartDateTimeInput(dateStr: string, timeStr: string): string {
   if (!dateStr) return '';
-  // 2026-11-10 -> 26-11-10; anything that is not a full YYYY-MM-DD is left be.
-  const short = /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr.slice(2) : dateStr;
-  return timeStr ? `${short} ${timeStr}` : short;
+  return timeStr ? `${dateStr} ${timeStr}` : dateStr;
 }

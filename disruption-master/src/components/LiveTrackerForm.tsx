@@ -279,7 +279,7 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
       return;
     }
     if (!startInput.trim()) {
-      setErrorMessage('Disruption Start is mandatory. Enter it as YY-MM-DD HH:MM.');
+      setErrorMessage('Disruption Start is mandatory. Enter it as YYYY-MM-DD HH:MM:SS.');
       return;
     }
     // The box holds text the parser rejected, so startDate / startTime are
@@ -287,7 +287,7 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
     // disruption under a start nobody typed.
     if (!startInputParsed) {
       setErrorMessage(
-        `Could not read "${startInput.trim()}" as a date and time. Enter the start as YY-MM-DD HH:MM, for example 26-11-10 14:35.`
+        `Could not read "${startInput.trim()}" as a date and time. Enter the start as YYYY-MM-DD HH:MM:SS, for example 2026-11-10 14:35:00.`
       );
       return;
     }
@@ -758,7 +758,7 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label htmlFor="disruption-start" className="block text-xs font-semibold text-slate-700">
-                  Disruption Start (YY-MM-DD HH:MM) <span className="text-rose-500">*</span>
+                  Disruption Start (YYYY-MM-DD HH:MM:SS) <span className="text-rose-500">*</span>
                 </label>
                 <button
                   type="button"
@@ -782,7 +782,7 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
                       setStartInput(formatStartDateTimeInput(startInputParsed.date, startInputParsed.time));
                     }
                   }}
-                  placeholder="26-11-10 14:35"
+                  placeholder="2026-11-10 14:35:00"
                   autoComplete="off"
                   spellCheck={false}
                   className={`w-full pl-9 pr-3 py-2 text-xs font-mono rounded-lg border focus:ring-2 bg-white ${
@@ -797,8 +797,8 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
               {startInput && !startInputParsed ? (
                 <p className="text-[10px] text-rose-600 mt-1 flex items-center gap-1">
                   <AlertCircle className="w-3 h-3" />
-                  Could not read that as a date. Try 26-11-10 14:35 — 2026-11-10 14:35:00 and 10-11-2026 14:35
-                  work too.
+                  Could not read that as a date. Use 2026-11-10 14:35:00 — 26-11-10 14:35 and 10-11-2026 14:35
+                  are accepted too.
                 </p>
               ) : startInputParsed ? (
                 <p className="text-[10px] text-slate-500 mt-1 flex items-center gap-1">
