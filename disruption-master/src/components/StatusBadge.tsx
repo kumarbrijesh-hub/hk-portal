@@ -60,6 +60,15 @@ export const BucketBadge: React.FC<{ bucket: BucketType | string }> = ({ bucket 
     badgeClasses = 'bg-amber-50 text-amber-700 border-amber-200';
   } else if (bucket === 'False Alarm / Invalid') {
     badgeClasses = 'bg-slate-100 text-slate-600 border-slate-200';
+  } else if (!bucket) {
+    // Deliberately loud. A blank bucket is not an error, but it is unfinished
+    // work, and it should be obvious at a glance in the tracker - not only on
+    // the form that left it blank.
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold border bg-rose-50 text-rose-700 border-rose-300 whitespace-nowrap">
+        Bucket not set
+      </span>
+    );
   }
 
   return (

@@ -1718,8 +1718,11 @@ async function startServer() {
     if (!data.ccPoc || !data.ccPoc.trim()) {
       return res.status(400).json({ error: 'CC POC is mandatory.' });
     }
-    if (!data.bucket || !['False Alarm / Invalid', 'Non Breakdown', 'Breakdown'].includes(data.bucket)) {
-      return res.status(400).json({ error: 'Valid Bucket selection is mandatory.' });
+    // Bucket may be left blank and set later from the Edit dialog; the console
+    // flags a blank one in red rather than refusing the record. A value that is
+    // present still has to be one of the three.
+    if (data.bucket && !['False Alarm / Invalid', 'Non Breakdown', 'Breakdown'].includes(data.bucket)) {
+      return res.status(400).json({ error: 'Bucket must be Breakdown, Non Breakdown or False Alarm / Invalid.' });
     }
     if (data.bucket === 'Breakdown' && (!data.ticketId || !data.ticketId.trim())) {
       return res.status(400).json({ error: 'Disruption Ticket ID is mandatory for Breakdown.' });
@@ -1854,7 +1857,7 @@ async function startServer() {
       disruptionStartDate: data.disruptionStartDate,
       disruptionStartTime: data.disruptionStartTime,
       ccPoc: data.ccPoc,
-      bucket: data.bucket,
+      bucket: data.bucket || '',
       ticketId: data.ticketId ? data.ticketId.trim() : undefined,
       currentStatus: data.currentStatus,
       subIssues: createSubIssues,
@@ -1890,9 +1893,10 @@ async function startServer() {
     const { updateText, updatedBy, newStatus, subIssues, subIssue } = req.body;
     const { formattedIST } = getCurrentISTDate();
 
-    if (!updateText || !updateText.trim()) {
-      return res.status(400).json({ error: 'Update text is mandatory.' });
-    }
+    // Optional on an update, unlike on the record that opens the disruption. A
+    // status move, a sub-issue tag or an arrival time is a post in its own
+    // right. What is still refused is a post that carries nothing at all.
+    const hasText = Boolean(updateText && String(updateText).trim());
 
     const disruption = db.disruptions.find((d) => d.disruptionId === disruptionId);
     if (!disruption) {
@@ -1933,10 +1937,25 @@ async function startServer() {
     // way to say so, and an update nobody could file is worse than one that is
     // tagged a few minutes late. The tagging can be added on any later update.
 
+    // The one thing still refused: a post carrying nothing. With the text
+    // optional, an empty submit would otherwise append a history row that says
+    // nothing, changes nothing and is filtered out of the log anyway.
+    const changesSomething =
+      hasText ||
+      targetStatus !== previousStatus ||
+      (incomingSubIssues !== undefined && incomingSubIssues.length > 0) ||
+      incomingRacFrt !== undefined ||
+      req.body?.internalRemarks !== undefined;
+    if (!changesSomething) {
+      return res.status(400).json({
+        error: 'Nothing to post. Add update text, change the status, or tag the sub-issue.',
+      });
+    }
+
     const historyItem: DisruptionUpdateHistory = {
       updateId: `UPD-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       disruptionId: disruption.disruptionId,
-      updateText: updateText.trim(),
+      updateText: hasText ? String(updateText).trim() : '',
       updatedBy: updatedBy || disruption.ccPoc || 'Operator',
       updatedAt: formattedIST,
       previousStatus,
@@ -1944,7 +1963,11 @@ async function startServer() {
     };
 
     disruption.updateHistory.push(historyItem);
-    disruption.latestLiveUpdate = updateText.trim();
+    // Only when this post actually carries a sentence. A status-only update
+    // must not blank out the last thing somebody wrote.
+    if (hasText) {
+      disruption.latestLiveUpdate = String(updateText).trim();
+    }
     // Only replace the handover note when this update actually carries one, so
     // an update that leaves the box untouched does not wipe the last shift's.
     if (req.body?.internalRemarks !== undefined) {

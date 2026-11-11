@@ -119,7 +119,9 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
 
   // Other fields. The CC POC is the signed-in operator, so there is nothing to pick.
   const ccPoc = currentUser;
-  const [bucket, setBucket] = useState<BucketType>('Non Breakdown');
+  // Starts blank on purpose: pre-selecting 'Non Breakdown' meant a bucket
+  // nobody had actually chosen got filed as if they had.
+  const [bucket, setBucket] = useState<BucketType | ''>('');
   const [ticketId, setTicketId] = useState('');
   const [currentStatus, setCurrentStatus] = useState<CurrentStatus>('No Update');
   const [selectedSubIssues, setSelectedSubIssues] = useState<string[]>([]);
@@ -299,10 +301,9 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
       setErrorMessage('CC POC is mandatory. Please select from the dropdown.');
       return;
     }
-    if (!bucket) {
-      setErrorMessage('Bucket is mandatory.');
-      return;
-    }
+    // Bucket is no longer a gate. Leaving it blank is allowed and flagged in
+    // red here and in the tracker, so it can be set from the Edit dialog once
+    // somebody knows which it is.
     // 2. Ticket ID validation
     if (isTicketIdMandatory && !ticketId.trim()) {
       setErrorMessage('Disruption Ticket ID is mandatory for Breakdown.');
@@ -419,6 +420,7 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
       setMstRacContactInput('');
       setSelectedOutlet(null);
       setTicketId('');
+      setBucket('');
       setCurrentStatus('No Update');
       setLiveUpdateText('');
       setSelectedSubIssues([]);
@@ -866,24 +868,37 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
             {/* Bucket Dropdown */}
             <div>
               <label htmlFor="bucket-select" className="block text-xs font-semibold text-slate-700 mb-1">
-                Bucket <span className="text-rose-500">*</span>
+                Bucket <span className="text-slate-400 font-normal">(Optional)</span>
               </label>
               <div className="relative">
                 <select
                   id="bucket-select"
                   value={bucket}
-                  onChange={(e) => setBucket(e.target.value as BucketType)}
-                  className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-red-500 font-medium"
-                  required
+                  onChange={(e) => setBucket(e.target.value as BucketType | '')}
+                  className={`w-full pl-9 pr-3 py-2 text-xs rounded-lg border bg-white focus:ring-2 font-medium ${
+                    bucket
+                      ? 'border-slate-300 focus:ring-red-500'
+                      : 'border-rose-400 bg-rose-50/60 text-rose-700 focus:ring-rose-500'
+                  }`}
                 >
+                  <option value="">Not selected</option>
                   {BUCKET_OPTIONS.map((option) => (
                     <option key={option} value={option}>
                       {option}
                     </option>
                   ))}
                 </select>
-                <Tag className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <Tag
+                  className={`w-4 h-4 absolute left-3 top-2.5 ${
+                    bucket ? 'text-slate-400' : 'text-rose-500'
+                  }`}
+                />
               </div>
+              {!bucket && (
+                <span className="text-[11px] text-rose-600 font-medium mt-0.5 block">
+                  No bucket chosen - you can still save, and set it later from Edit.
+                </span>
+              )}
             </div>
 
             {/* Disruption Ticket ID / Nugget Ticket ID (Mandatory only when Bucket = Breakdown) */}
@@ -905,7 +920,7 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
                   placeholder={isTicketIdMandatory ? 'e.g. NUG-89421 (Required)' : 'e.g. NUG-89421'}
                   className={`w-full pl-9 pr-3 py-2 text-xs font-mono rounded-lg border focus:ring-2 ${
                     isTicketIdMandatory && !ticketId
-                      ? 'border-amber-400 bg-amber-50/50 focus:ring-amber-500'
+                      ? 'border-rose-400 bg-rose-50/60 focus:ring-rose-500'
                       : 'border-slate-300 bg-white focus:ring-red-500'
                   }`}
                   required={isTicketIdMandatory}
@@ -913,8 +928,8 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
                 <Ticket className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               </div>
               {isTicketIdMandatory && !ticketId && (
-                <span className="text-[11px] text-amber-700 font-medium mt-0.5 block">
-                  Disruption Ticket ID is mandatory for Breakdown.
+                <span className="text-[11px] text-rose-600 font-medium mt-0.5 block">
+                  Bucket is Breakdown - Disruption Ticket ID is mandatory.
                 </span>
               )}
             </div>

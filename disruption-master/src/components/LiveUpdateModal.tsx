@@ -82,8 +82,14 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
     e.preventDefault();
     setError(null);
 
-    if (!updateText.trim()) {
-      setError('Please provide live update remarks.');
+    // The text is optional now, but the post still has to carry something.
+    // Blank everything would append an entry that says nothing and shows up
+    // nowhere, so it is refused here rather than silently stored.
+    const statusChanged = targetStatus !== disruption.currentStatus;
+    const hasRacFrt =
+      needsRacFrt && racFrtValue !== null && String(racFrtValue).trim() !== '';
+    if (!updateText.trim() && !statusChanged && selectedSubIssues.length === 0 && !hasRacFrt) {
+      setError('Nothing to post yet. Write an update, change the status, or tag the sub-issue.');
       return;
     }
 
@@ -131,9 +137,9 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
-      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-lg max-h-[calc(100dvh-2rem)] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="bg-slate-900 px-5 py-3.5 flex items-center justify-between border-b border-slate-800">
+        <div className="bg-slate-900 px-5 py-3.5 flex items-center justify-between border-b border-slate-800 shrink-0">
           <div>
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <Activity className="w-4 h-4 text-emerald-400" />
@@ -152,7 +158,10 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+        <form onSubmit={handleSubmit} className="flex flex-col min-h-0 flex-1">
+          {/* Everything above the footer scrolls; min-h-0 is what lets a flex
+              child actually shrink instead of growing past its parent. */}
+          <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
           {error && (
             <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg flex items-center gap-2 text-xs text-rose-800">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
@@ -306,7 +315,7 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
           {/* Live Update Remarks */}
           <div>
             <label htmlFor="modal-update-text" className="block text-xs font-semibold text-slate-700 mb-1">
-              Live Update Text <span className="text-rose-500">*</span>
+              Live Update Text <span className="text-slate-400 font-normal">(Optional)</span>
             </label>
             <textarea
               id="modal-update-text"
@@ -315,7 +324,6 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
               onChange={(e) => setUpdateText(e.target.value)}
               placeholder="e.g. Technician reached site at 11:15 AM. Identified motor contactor burnout..."
               className="w-full p-2.5 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-red-500 focus:border-red-500"
-              required
             />
           </div>
 
@@ -337,8 +345,11 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
             />
           </div>
 
-          <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
-            <span className="text-slate-500">
+          </div>
+
+          {/* Pinned: never scrolls out of reach. */}
+          <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-slate-200 bg-white text-xs shrink-0">
+            <span className="text-slate-500 truncate">
               Posting as: <strong className="text-slate-700">{currentUser || disruption.ccPoc}</strong>
             </span>
             <div className="flex items-center gap-2">

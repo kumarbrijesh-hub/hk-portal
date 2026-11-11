@@ -263,7 +263,8 @@ export interface Disruption {
   disruptionStartDate: string; // YYYY-MM-DD
   disruptionStartTime: string; // HH:MM:SS
   ccPoc: string;
-  bucket: BucketType;
+  /** '' when the operator has not picked one yet; shown as a red 'Not set' chip. */
+  bucket: BucketType | '';
   ticketId?: string;
   currentStatus: CurrentStatus;
   /**

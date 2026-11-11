@@ -35,7 +35,7 @@ export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
   onClose,
   onSuccess,
 }) => {
-  const [bucket, setBucket] = useState<BucketType>(disruption.bucket);
+  const [bucket, setBucket] = useState<BucketType | ''>(disruption.bucket);
   const [ticketId, setTicketId] = useState(disruption.ticketId ?? '');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -86,9 +86,9 @@ export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-      <div className="w-full max-w-lg rounded-xl bg-white shadow-2xl">
+      <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
         {/* Header */}
-        <div className="flex items-start justify-between border-b border-slate-200 p-4">
+        <div className="flex shrink-0 items-start justify-between border-b border-slate-200 p-4">
           <div>
             <h2 className="text-base font-bold text-slate-900">Edit Bucket &amp; Ticket ID</h2>
             <p className="mt-0.5 font-mono text-xs text-slate-500">{disruption.disruptionId}</p>
@@ -103,7 +103,8 @@ export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
           </button>
         </div>
 
-        <form onSubmit={handleSave} className="space-y-4 p-4">
+        <form onSubmit={handleSave} className="flex min-h-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
           <div className="flex items-center gap-2 rounded-lg bg-slate-50 p-2.5 text-xs text-slate-600">
             <span className="font-semibold text-slate-700">{disruption.outletId}</span>
             <span className="text-slate-300">|</span>
@@ -122,9 +123,14 @@ export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
               <select
                 id="edit-bucket"
                 value={bucket}
-                onChange={(e) => setBucket(e.target.value as BucketType)}
-                className="w-full cursor-pointer appearance-none rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-xs focus:border-red-500 focus:ring-2 focus:ring-red-500"
+                onChange={(e) => setBucket(e.target.value as BucketType | '')}
+                className={`w-full cursor-pointer appearance-none rounded-lg border bg-white py-2 pl-9 pr-3 text-xs focus:ring-2 ${
+                  bucket
+                    ? 'border-slate-300 focus:border-red-500 focus:ring-red-500'
+                    : 'border-rose-400 bg-rose-50/60 text-rose-700 focus:ring-rose-500'
+                }`}
               >
+                <option value="">Not selected</option>
                 {BUCKET_OPTIONS.map((option) => (
                   <option key={option} value={option}>
                     {option}
@@ -135,7 +141,7 @@ export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
             </div>
             {bucket !== disruption.bucket && (
               <p className="mt-1 text-[10px] text-slate-500">
-                Was <span className="font-semibold">{disruption.bucket}</span>
+                Was <span className="font-semibold">{disruption.bucket || 'not set'}</span>
               </p>
             )}
           </div>
@@ -178,7 +184,10 @@ export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
             </div>
           )}
 
-          <div className="flex items-center justify-end gap-2 border-t border-slate-200 pt-3">
+          </div>
+
+          {/* Pinned: never scrolls out of reach. */}
+          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-slate-200 bg-white px-4 py-3">
             <button
               type="button"
               onClick={onClose}
