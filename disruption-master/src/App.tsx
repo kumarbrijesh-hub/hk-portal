@@ -9,6 +9,8 @@ import { AppTab, Header } from './components/Header';
 import { LiveTrackerForm } from './components/LiveTrackerForm';
 import { LiveTrackerTable } from './components/LiveTrackerTable';
 import { ActiveDisruptionsView } from './components/ActiveDisruptionsView';
+import { AutoDisabledView } from './components/AutoDisabledView';
+import { StoreInstancesView } from './components/StoreInstancesView';
 import { ConfigView } from './components/ConfigView';
 import { PerformanceSummaryView } from './components/PerformanceSummaryView';
 import { WeeklyDisruptionReport } from './components/WeeklyDisruptionReport';
@@ -20,7 +22,8 @@ import {
   AppConfig,
   AuthState,
   Disruption,
-  isDisruptionActive,
+  isAutoDisabled,
+  isOnActiveBoard,
   OutletMaster,
   SessionUser,
   SheetSourceKey,
@@ -44,6 +47,8 @@ import {
   deleteDisruption,
 } from './services/api';
 import { DEFAULT_CONFIG } from './data/defaultConfig';
+import { applyTheme, initialTheme, storeTheme, ThemeMode } from './utils/theme';
+import { BrandMark } from './components/BrandMark';
 
 /** Sign-in gate. Only work addresses on the allowed domains get through. */
 function LoginScreen({ auth, onSignedIn }: { auth: AuthState; onSignedIn: () => void }) {
@@ -97,11 +102,11 @@ function LoginScreen({ auth, onSignedIn }: { auth: AuthState; onSignedIn: () => 
         className="w-full max-w-sm bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden"
       >
         <div className="bg-slate-900 px-6 py-5 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-red-600 flex items-center justify-center text-white font-bold tracking-wider">
-            DMS
-          </div>
+          <BrandMark size="md" onDark showWordmark={false} />
           <div>
-            <h1 className="text-sm font-bold text-white">Disruption Management System</h1>
+            <h1 className="text-sm font-bold text-white">
+              <span className="text-emerald-400">Blinkit</span> Disruption Management System
+            </h1>
             <p className="text-xs text-slate-400">Sign in with your work email</p>
           </div>
         </div>
@@ -172,6 +177,25 @@ function idleStatus(): SyncStatus {
 export default function App() {
   // Access control: null until /api/auth/me answers, so nothing flashes first.
   const [auth, setAuth] = useState<AuthState | null>(null);
+
+  /**
+   * Light / dark. The class is already on <html> by the time React mounts - a
+   * blocking script in index.html puts it there - so this state starts from the
+   * same answer rather than fighting it and flashing white.
+   */
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => initialTheme());
+
+  useEffect(() => {
+    applyTheme(themeMode);
+  }, [themeMode]);
+
+  const handleToggleTheme = useCallback(() => {
+    setThemeMode((prev) => {
+      const next: ThemeMode = prev === 'dark' ? 'light' : 'dark';
+      storeTheme(next);
+      return next;
+    });
+  }, []);
 
   const refreshAuth = useCallback(async () => {
     try {
@@ -468,8 +492,10 @@ export default function App() {
     }
   };
 
-  // Calculate live active count using strict rule
-  const activeCount = disruptions.filter((d) => isDisruptionActive(d.currentStatus)).length;
+  // The header counts have to match the pages they point at: Auto Disable is
+  // still an open disruption, but it lives on its own page and is counted there.
+  const activeCount = disruptions.filter((d) => isOnActiveBoard(d.currentStatus)).length;
+  const autoDisabledCount = disruptions.filter((d) => isAutoDisabled(d.currentStatus)).length;
 
   if (auth === null) {
     return (
@@ -527,6 +553,9 @@ export default function App() {
         onSignOut={handleSignOut}
         activeCount={activeCount}
         totalCount={disruptions.length}
+        autoDisabledCount={autoDisabledCount}
+        themeMode={themeMode}
+        onToggleTheme={handleToggleTheme}
       />
 
       {/* Main App Body — full desktop width, no 1280px cap. */}
@@ -569,7 +598,21 @@ export default function App() {
           />
         )}
 
-        {/* TAB 3: DATE-WISE PERFORMANCE SUMMARY */}
+        {/* TAB 3: AUTO DISABLED - open, but parked and off the active board */}
+        {activeTab === 'autoDisabled' && (
+          <AutoDisabledView
+            allDisruptions={disruptions}
+            onOpenLiveUpdate={setSelectedDisruptionForUpdate}
+            onOpenHistory={setSelectedDisruptionForHistory}
+            onOpenEditDetails={setSelectedDisruptionForEdit}
+            onRefreshData={loadInitialData}
+          />
+        )}
+
+        {/* TAB 4: STORE INSTANCES - breakdowns per store, counted by ticket */}
+        {activeTab === 'instances' && <StoreInstancesView disruptions={disruptions} />}
+
+        {/* TAB 5: DATE-WISE PERFORMANCE SUMMARY */}
         {activeTab === 'weekly' && <WeeklyDisruptionReport disruptions={disruptions} />}
 
         {activeTab === 'summary' && <PerformanceSummaryView disruptions={disruptions} />}

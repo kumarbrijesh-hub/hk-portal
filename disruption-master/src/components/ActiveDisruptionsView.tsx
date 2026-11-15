@@ -20,10 +20,13 @@ import {
   Clock,
   Sparkles,
   BellRing,
+  Repeat,
 } from 'lucide-react';
-import { AUDIT_HOLD_LIMIT_HOURS, Disruption, isDisruptionActive } from '../types';
+import { AUDIT_HOLD_LIMIT_HOURS, Disruption, isAutoDisabled, isDisruptionActive, isOnActiveBoard } from '../types';
 import { StatusBadge, BucketBadge } from './StatusBadge';
 import { LiveUpdateLog } from './LiveUpdateLog';
+import { BrandMark } from './BrandMark';
+import { hoursLabel, runHours, ticketRollupIndex } from '../utils/ticketInstances';
 import {
   exportActiveReportToCSV,
   exportActiveReportToExcel,
@@ -31,7 +34,6 @@ import {
 } from '../utils/reportExport';
 import { getCurrentISTDate, formatReportGeneratedTimestamp, calculateDurationHours } from '../utils/dateUtils';
 import { readIssues, readSubIssues } from '../utils/issueTaxonomy';
-import { disruptionDurationHours } from '../utils/liveUpdateLog';
 import { auditHoldState, expiredAuditHolds, formatHoursMinutes } from '../utils/auditHold';
 
 interface ActiveDisruptionsViewProps {
@@ -48,15 +50,20 @@ interface ActiveDisruptionsViewProps {
 }
 
 /**
- * Hours to show in the Dur column.
+ * Hours to show in the Dur column: `runHours`, under the name this file has
+ * always used for it.
  *
  * While a disruption is open this is a running count from its start. Once an
  * end time is on the record - normally from the timing sheet or a timing CSV -
  * it becomes the settled end-minus-start figure, so the number stops climbing
  * past the moment the store actually came back up.
+ *
+ * The body moved to utils/ticketInstances so the per-ticket totals add up the
+ * same figure this column shows. Two definitions of "how long" that disagreed
+ * by a rounding rule would be a bug nobody could see.
  */
 function elapsedOrFinalHours(d: Disruption): number | null {
-  return disruptionDurationHours(d) ?? calculateDurationHours(d.disruptionStartDateTime);
+  return runHours(d);
 }
 
 export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
@@ -95,10 +102,27 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
   const [pngSuccessToast, setPngSuccessToast] = useState(false);
   const [pngErrorToast, setPngErrorToast] = useState<string | null>(null);
 
-  // 1. Strict Active Disruption Logic
+  // 1. Strict Active Disruption Logic. Auto-disabled records are open but
+  // parked, and they have their own page - leaving them here made the active
+  // count answer "how many problems exist" when the floor needs "how many are
+  // being worked right now".
   const allActiveDisruptions = useMemo(() => {
-    return allDisruptions.filter((d) => isDisruptionActive(d.currentStatus));
+    return allDisruptions.filter((d) => isOnActiveBoard(d.currentStatus));
   }, [allDisruptions]);
+
+  /** How many are sitting on the Auto Disabled page, for the pointer to it. */
+  const parkedCount = useMemo(
+    () => allDisruptions.filter((d) => isAutoDisabled(d.currentStatus)).length,
+    [allDisruptions]
+  );
+
+  /**
+   * Per-ticket totals, built over every record rather than the filtered view.
+   * An earlier run of the same ticket is usually resolved or parked and so is
+   * absent from this board; counting only what is on screen would report a
+   * store as two hours down when it has been down six.
+   */
+  const ticketRollups = useMemo(() => ticketRollupIndex(allDisruptions), [allDisruptions]);
 
   /**
    * Outlets carrying more than one open disruption at the same time. One store
@@ -302,12 +326,12 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
   };
 
   const handleDownloadCSV = () => {
-    exportActiveReportToCSV(filteredActiveDisruptions, getActiveFiltersSummary());
+    exportActiveReportToCSV(filteredActiveDisruptions, getActiveFiltersSummary(), allDisruptions);
     setExportMenuOpen(false);
   };
 
   const handleDownloadExcel = () => {
-    exportActiveReportToExcel(filteredActiveDisruptions, getActiveFiltersSummary());
+    exportActiveReportToExcel(filteredActiveDisruptions, getActiveFiltersSummary(), allDisruptions);
     setExportMenuOpen(false);
   };
 
@@ -721,11 +745,23 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
             <div className="text-[11px] font-bold tracking-[0.25em] text-slate-500 uppercase mt-0.5">
               Live Operations Snapshot
             </div>
-            <div className="mt-2.5">
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+              {/* Small on purpose. The report is about the number, and a logo
+                  that competes with it is a logo in the way. */}
+              <BrandMark size="sm" />
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-blue-50/90 text-blue-700 border border-blue-200 text-xs font-semibold shadow-2xs">
                 <Clock className="w-3.5 h-3.5 text-blue-600" />
                 Generated: {formatReportGeneratedTimestamp()}
               </span>
+              {parkedCount > 0 && (
+                <span
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-slate-100 text-slate-600 border border-slate-200 text-xs font-semibold"
+                  title="Auto-disabled records are open but parked, and are counted on the Auto Disabled page instead"
+                >
+                  <Repeat className="w-3.5 h-3.5 text-slate-500" />
+                  {parkedCount} auto disabled (not counted here)
+                </span>
+              )}
             </div>
           </div>
 
@@ -973,6 +1009,11 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                   const isDuplicate = duplicateOutletIds.has((d.outletId || '').trim());
                   const durationHours = elapsedOrFinalHours(d);
                   const durHrs = durationHours === null ? '-' : durationHours.toFixed(1);
+                  const rollup = ticketRollups.get(d.disruptionId);
+                  const ticketRuns = rollup?.occurrences ?? 1;
+                  // Only worth showing when the ticket has run before: on a
+                  // first run the combined figure is the same number twice.
+                  const combinedHours = ticketRuns > 1 ? rollup?.totalHours ?? null : null;
 
                   return (
                     <tr
@@ -1031,9 +1072,23 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                         <BucketBadge bucket={d.bucket} />
                       </td>
 
-                      {/* Dur (Hrs) in bold red */}
+                      {/* Dur (Hrs) in bold red. When the same ticket has gone
+                          down before, the combined figure sits underneath: this
+                          run on its own answers the wrong question once a store
+                          has auto-disabled and come back twice. */}
                       <td className="py-3 px-3 whitespace-nowrap font-mono font-bold text-rose-600 text-xs">
                         {durHrs}
+                        {combinedHours !== null && (
+                          <span
+                            className="mt-1 flex items-center gap-1 font-sans text-[10px] font-bold text-amber-700"
+                            title={`${ticketRuns} runs on ticket ${rollup?.ticket} add up to ${hoursLabel(
+                              combinedHours
+                            )}`}
+                          >
+                            <Repeat className="w-3 h-3 shrink-0" />
+                            {combinedHours.toFixed(1)} total
+                          </span>
+                        )}
                       </td>
 
                       {/* Status */}
@@ -1056,12 +1111,27 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                         {d.mstFrtMins ?? '-'}
                       </td>
 
-                      {/* Ticket ID in bold blue */}
+                      {/* Ticket ID in bold blue, with which run of it this row
+                          is - "RUN 3 OF 3" next to a two-hour duration is what
+                          tells somebody the store has really been down six. */}
                       <td className="py-3 px-3 whitespace-nowrap">
                         {d.ticketId ? (
-                          <span className="font-mono font-semibold text-blue-600">
-                            {d.ticketId}
-                          </span>
+                          <>
+                            <span className="font-mono font-semibold text-blue-600">
+                              {d.ticketId}
+                            </span>
+                            {ticketRuns > 1 && (
+                              <span
+                                className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-bold"
+                                title={`This outlet has gone down ${ticketRuns} times on this ticket`}
+                              >
+                                <Repeat className="w-3 h-3" />
+                                RUN{' '}
+                                {(rollup?.records.findIndex((r) => r.disruptionId === d.disruptionId) ?? 0) + 1} OF{' '}
+                                {ticketRuns}
+                              </span>
+                            )}
+                          </>
                         ) : (
                           <span className="text-slate-400 font-mono">—</span>
                         )}

@@ -16,10 +16,23 @@ import {
   ShieldCheck,
   Check,
   X,
+  PowerOff,
+  Store,
+  Moon,
+  Sun,
 } from 'lucide-react';
 import { SessionUser, SyncStatus } from '../types';
+import { BrandMark } from './BrandMark';
+import { ThemeMode } from '../utils/theme';
 
-export type AppTab = 'liveTracker' | 'activeDisruptions' | 'weekly' | 'summary' | 'config';
+export type AppTab =
+  | 'liveTracker'
+  | 'activeDisruptions'
+  | 'autoDisabled'
+  | 'weekly'
+  | 'summary'
+  | 'instances'
+  | 'config';
 
 interface HeaderProps {
   activeTab: AppTab;
@@ -33,6 +46,10 @@ interface HeaderProps {
   onSignOut: () => void;
   activeCount: number;
   totalCount: number;
+  /** Records parked on Auto Disable, shown on their own page. */
+  autoDisabledCount: number;
+  themeMode: ThemeMode;
+  onToggleTheme: () => void;
 }
 
 /**
@@ -159,6 +176,9 @@ export const Header: React.FC<HeaderProps> = ({
   onSignOut,
   activeCount,
   totalCount,
+  autoDisabledCount,
+  themeMode,
+  onToggleTheme,
 }) => {
   return (
     <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-40 shadow-md">
@@ -167,12 +187,12 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
           {/* Logo & System Title */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-red-600 flex items-center justify-center text-white shadow-inner font-bold text-lg tracking-wider">
-              DMS
-            </div>
+            <BrandMark size="md" onDark showWordmark={false} />
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold tracking-tight text-white">Disruption Management System</h1>
+                <h1 className="text-xl font-bold tracking-tight text-white">
+                  <span className="text-emerald-400">Blinkit</span> Disruption Management System
+                </h1>
                 <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-500/20 text-red-300 border border-red-500/30">
                   LIVE OPS
                 </span>
@@ -224,6 +244,25 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
               <span>{isSyncing ? 'SYNCING...' : 'SYNC NOW'}</span>
+            </button>
+
+            {/* Light / dark. Sits with the other console controls rather than
+                buried in Settings: somebody dimming a floor display at night
+                should not have to go two screens deep for it. */}
+            <button
+              id="theme-toggle-button"
+              type="button"
+              onClick={onToggleTheme}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs transition"
+              title={themeMode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              aria-pressed={themeMode === 'dark'}
+            >
+              {themeMode === 'dark' ? (
+                <Sun className="w-3.5 h-3.5 text-amber-300" />
+              ) : (
+                <Moon className="w-3.5 h-3.5 text-indigo-300" />
+              )}
+              <span className="hidden md:inline">{themeMode === 'dark' ? 'Light' : 'Dark'}</span>
             </button>
 
             {/* Config Button */}
@@ -290,6 +329,27 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
           <button
+            id="nav-auto-disabled"
+            type="button"
+            onClick={() => setActiveTab('autoDisabled')}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all whitespace-nowrap ${
+              activeTab === 'autoDisabled'
+                ? 'bg-slate-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <PowerOff className="w-4 h-4" />
+            <span>Auto Disabled</span>
+            <span
+              className={`ml-1 px-2 py-0.5 rounded-full text-xs font-bold ${
+                activeTab === 'autoDisabled' ? 'bg-slate-800 text-white' : 'bg-slate-700 text-slate-300'
+              }`}
+            >
+              {autoDisabledCount}
+            </span>
+          </button>
+
+          <button
             id="nav-weekly-report"
             type="button"
             onClick={() => setActiveTab('weekly')}
@@ -315,6 +375,20 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <BarChart3 className="w-4 h-4" />
             <span>Performance Summary</span>
+          </button>
+
+          <button
+            id="nav-store-instances"
+            type="button"
+            onClick={() => setActiveTab('instances')}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all whitespace-nowrap ${
+              activeTab === 'instances'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <Store className="w-4 h-4" />
+            <span>Store Instances</span>
           </button>
 
           <button

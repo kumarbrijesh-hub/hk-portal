@@ -3,12 +3,58 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Disruption Management System</title>
-    <meta name="description" content="Operational Disruption Management System with live tracker, outlet master sync, and active disruption reporting." />
-    <meta property="og:title" content="Disruption Management System" />
-    <meta property="og:description" content="Operational Disruption Management System with live tracker, outlet master sync, and active disruption reporting." />
+    <title>Blinkit DMS — Disruption Management System</title>
+    <meta name="description" content="Blinkit Disruption Management System: live tracker, active disruption board, store master sync and operational reporting." />
+    <meta property="og:title" content="Blinkit DMS — Disruption Management System" />
+    <meta property="og:description" content="Blinkit Disruption Management System: live tracker, active disruption board, store master sync and operational reporting." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+
+    <!--
+      Tab icon. Inlined as a data URI rather than a file in public/ so it cannot
+      go missing from a build, and so the tab is branded on the very first paint
+      with no second request. The browser default was a blank globe, which is
+      what every other unbranded tab looks like.
+
+      Green on purpose - it is the colour the team asked for and it reads as
+      "up" next to a console whose whole job is reporting things that are down.
+      The wordmark is the three letters people call the system by; at 16px they
+      collapse into a light band on green, which is still a mark you can find in
+      a row of twenty tabs.
+    -->
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%2318a558'/%3E%3Crect x='4' y='4' width='56' height='56' rx='12' fill='none' stroke='%2334d399' stroke-opacity='.35' stroke-width='2'/%3E%3Ctext x='32' y='40' text-anchor='middle' font-family='Verdana,DejaVu Sans,system-ui,sans-serif' font-size='21' font-weight='700' letter-spacing='-0.5' fill='%23ffffff'%3EDMS%3C/text%3E%3C/svg%3E"
+    />
+    <link
+      rel="apple-touch-icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%2318a558'/%3E%3Ctext x='32' y='40' text-anchor='middle' font-family='Verdana,DejaVu Sans,system-ui,sans-serif' font-size='21' font-weight='700' fill='%23ffffff'%3EDMS%3C/text%3E%3C/svg%3E"
+    />
+    <meta name="theme-color" content="#18a558" />
+    <meta name="application-name" content="Blinkit DMS" />
+    <meta name="apple-mobile-web-app-title" content="Blinkit DMS" />
+
+    <!--
+      Dark mode is applied before the first paint. React cannot do this - it
+      runs after the document has already been drawn - so a dark-mode user would
+      get a white flash on every reload. Reading the same key the theme module
+      writes keeps the two in step.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('dms-theme');
+          var dark =
+            stored === 'dark' ||
+            (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) {
+          /* A browser that blocks site data simply starts light. */
+        }
+      })();
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" crossorigin="anonymous">
@@ -18,4 +64,3 @@
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

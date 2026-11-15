@@ -73,6 +73,7 @@ export const PROTECTED_STATUS_REASONS: Record<string, string> = {
   'Resolved by CC': 'Closes the disruption and requires a sub-issue',
   'Resolved by Dealer': 'Requires a sub-issue',
   Disable: 'Closes the disruption',
+  'Auto Disable': 'Moves the record to the Auto Disabled page',
   'Audit in Process': 'Starts the 2.5-hour audit reminder',
 };
 
@@ -114,6 +115,32 @@ export const INACTIVE_STATUSES: CurrentStatus[] = [
 
 export function isDisruptionActive(status: CurrentStatus | string): boolean {
   return !INACTIVE_STATUSES.includes(status as CurrentStatus);
+}
+
+/**
+ * The parked state. A store that auto-disables is not resolved - the fault is
+ * still there and the ticket is still open - but it is also not something the
+ * team is working this minute, so it does not belong on the Active board
+ * competing for attention with live breakdowns.
+ *
+ * It is deliberately NOT in INACTIVE_STATUSES: that list means closed, and
+ * putting it there would drop these records out of the counts, the performance
+ * summary and the reports as though the disruption had ended.
+ */
+export const AUTO_DISABLE_STATUS = 'Auto Disable';
+
+export function isAutoDisabled(status: CurrentStatus | string): boolean {
+  return status === AUTO_DISABLE_STATUS;
+}
+
+/**
+ * On the Active board: open, and not parked on auto-disable. Moving a parked
+ * record to any other open status - RAC Aligned, RAC Visited, OEM, anything the
+ * team adds - brings it straight back here, because the test is the absence of
+ * the parked status rather than a list of statuses to come back on.
+ */
+export function isOnActiveBoard(status: CurrentStatus | string): boolean {
+  return isDisruptionActive(status) && !isAutoDisabled(status);
 }
 
 export type UserRole = 'owner' | 'member';
