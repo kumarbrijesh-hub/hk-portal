@@ -447,3 +447,40 @@ export function statusOptionsFrom(config?: { statusOptions?: string[] }): string
   }
   return list;
 }
+
+/**
+ * The two feeds that look a disruption up by its ID. The store master does not
+ * appear here: it is keyed by outlet, so an ID can never fail to match it.
+ */
+export type IdMatchFeedKey = 'disruptionTimings' | 'tickets';
+
+/**
+ * A sheet row whose Disruption ID matches no record here.
+ *
+ * Both ID-keyed feeds used to skip these rows in silence, which is how a sheet
+ * and this console can disagree for weeks without anything saying so. The row
+ * is kept as the sheet wrote it - the ID is not corrected or guessed at - so
+ * the page can show the two spellings side by side.
+ */
+export interface UnmatchedSheetId {
+  feed: IdMatchFeedKey;
+  /** Exactly as the sheet spells it, trimmed only. */
+  sheetDisruptionId: string;
+  /** Whatever else that row carried, for recognising which incident it is. */
+  ticketId: string;
+  ticketStatus: string;
+  endTime: string;
+  /** IST stamp of the sync or upload that last saw this row. */
+  seenAt: string;
+}
+
+export interface IdMatchReport {
+  rows: UnmatchedSheetId[];
+  /** IST stamp of the last feed run, or null if none has run since boot. */
+  lastCheckedAt: string | null;
+  /** Which of the two feeds has been read since boot. */
+  checkedFeeds: IdMatchFeedKey[];
+}
+
+/** How an app record should be re-pointed at a sheet's Disruption ID. */
+export type IdAlignMode = 'align' | 'idOnly';

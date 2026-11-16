@@ -11,6 +11,7 @@ import { LiveTrackerTable } from './components/LiveTrackerTable';
 import { ActiveDisruptionsView } from './components/ActiveDisruptionsView';
 import { AutoDisabledView } from './components/AutoDisabledView';
 import { StoreInstancesView } from './components/StoreInstancesView';
+import { IdMatchView } from './components/IdMatchView';
 import { ConfigView } from './components/ConfigView';
 import { PerformanceSummaryView } from './components/PerformanceSummaryView';
 import { WeeklyDisruptionReport } from './components/WeeklyDisruptionReport';
@@ -556,6 +557,7 @@ export default function App() {
         autoDisabledCount={autoDisabledCount}
         themeMode={themeMode}
         onToggleTheme={handleToggleTheme}
+        isOwner={isOwner}
       />
 
       {/* Main App Body — full desktop width, no 1280px cap. */}
@@ -612,7 +614,19 @@ export default function App() {
         {/* TAB 4: STORE INSTANCES - breakdowns per store, counted by ticket */}
         {activeTab === 'instances' && <StoreInstancesView disruptions={disruptions} />}
 
-        {/* TAB 5: DATE-WISE PERFORMANCE SUMMARY */}
+        {/* TAB 5: SHEET ID MATCH - owner only, reconciles the key both
+            sheets join on. Gated here as well as in the header, so a stale
+            activeTab from a previous session cannot leave it rendered after a
+            member signs in. */}
+        {activeTab === 'idMatch' && (
+          <IdMatchView
+            disruptions={disruptions}
+            isOwner={isOwner}
+            onRefresh={async () => setDisruptions(await fetchDisruptions())}
+          />
+        )}
+
+        {/* TAB 6: DATE-WISE PERFORMANCE SUMMARY */}
         {activeTab === 'weekly' && <WeeklyDisruptionReport disruptions={disruptions} />}
 
         {activeTab === 'summary' && <PerformanceSummaryView disruptions={disruptions} />}

@@ -2,6 +2,8 @@ import {
   AppConfig,
   Disruption,
   DisruptionUpdateHistory,
+  IdAlignMode,
+  IdMatchReport,
   OutletMaster,
   SheetSourceKey,
   SyncStatus,
@@ -262,4 +264,56 @@ export async function deleteDisruption(disruptionId: string): Promise<void> {
     const errData = await res.json().catch(() => ({}));
     throw new Error(errData.error || `Failed to delete disruption (${res.status})`);
   }
+}
+
+/**
+ * Owner-only. What the last run of each ID-keyed sheet feed could not place.
+ *
+ * Empty with a null `lastCheckedAt` is not the same as "nothing is wrong": it
+ * means no feed has run since the server booted, and the page says so rather
+ * than reporting a clean bill of health it has not earned.
+ */
+export async function fetchIdMatchReport(): Promise<IdMatchReport> {
+  const res = await fetch(`${API_BASE}/id-match`);
+  if (res.status === 403) {
+    throw new Error('Only the owner account can open the Sheet ID Match page.');
+  }
+  if (!res.ok) {
+    throw new Error(`Could not read the ID match report (${res.status}).`);
+  }
+  const data = await res.json();
+  return {
+    rows: data.rows || [],
+    lastCheckedAt: data.lastCheckedAt ?? null,
+    checkedFeeds: data.checkedFeeds || [],
+  };
+}
+
+/**
+ * Owner-only. Re-points one record at the Disruption ID a sheet uses.
+ *
+ * `align` also moves the record's start to the minute that ID encodes, which is
+ * what makes the two IDs agree; `idOnly` changes the ID alone and is for sheet
+ * IDs that carry no minute to adopt.
+ */
+export async function alignDisruptionId(
+  disruptionId: string,
+  targetDisruptionId: string,
+  mode: IdAlignMode = 'align'
+): Promise<{ message: string; previousDisruptionId: string; disruption: Disruption }> {
+  const res = await fetch(
+    `${API_BASE}/disruptions/${encodeURIComponent(disruptionId)}/align-id`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetDisruptionId, mode }),
+    }
+  );
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || `Could not change the Disruption ID (${res.status}).`);
+  }
+
+  return await res.json();
 }

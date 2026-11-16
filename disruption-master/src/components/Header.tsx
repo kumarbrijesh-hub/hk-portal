@@ -20,6 +20,7 @@ import {
   Store,
   Moon,
   Sun,
+  Unlink,
 } from 'lucide-react';
 import { SessionUser, SyncStatus } from '../types';
 import { BrandMark } from './BrandMark';
@@ -32,6 +33,7 @@ export type AppTab =
   | 'weekly'
   | 'summary'
   | 'instances'
+  | 'idMatch'
   | 'config';
 
 interface HeaderProps {
@@ -50,6 +52,8 @@ interface HeaderProps {
   autoDisabledCount: number;
   themeMode: ThemeMode;
   onToggleTheme: () => void;
+  /** The Sheet ID Match tab rewrites the key both sheets join on. */
+  isOwner: boolean;
 }
 
 /**
@@ -179,6 +183,7 @@ export const Header: React.FC<HeaderProps> = ({
   autoDisabledCount,
   themeMode,
   onToggleTheme,
+  isOwner,
 }) => {
   return (
     <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-40 shadow-md">
@@ -390,6 +395,25 @@ export const Header: React.FC<HeaderProps> = ({
             <Store className="w-4 h-4" />
             <span>Store Instances</span>
           </button>
+
+          {/* Owner only, and hidden rather than disabled for everyone else: a
+              tab that rewrites the Disruption ID has nothing to offer an
+              account that cannot use it. The server refuses it too. */}
+          {isOwner && (
+            <button
+              id="nav-id-match"
+              type="button"
+              onClick={() => setActiveTab('idMatch')}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all whitespace-nowrap ${
+                activeTab === 'idMatch'
+                  ? 'bg-rose-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+              }`}
+            >
+              <Unlink className="w-4 h-4" />
+              <span>Sheet ID Match</span>
+            </button>
+          )}
 
           <button
             id="nav-sheet-config"

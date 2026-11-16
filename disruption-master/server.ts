@@ -17,12 +17,14 @@ import {
   Disruption,
   DisruptionUpdateHistory,
   OutletMaster,
+  IdMatchFeedKey,
   SheetSourceConfig,
   SheetSourceKey,
   SHEET_SOURCE_KEYS,
   SHEET_SOURCE_LABELS,
   SyncStatus,
   SyncStatuses,
+  UnmatchedSheetId,
 } from './src/types';
 import { formatDateTimeIST, formatToIST, getCurrentISTDate, hoursBetween } from './src/utils/dateUtils';
 import { deriveIssues, readIssues, readSubIssues } from './src/utils/issueTaxonomy';
@@ -38,6 +40,7 @@ import {
   STEP_STAMP_FIELDS,
 } from './src/types';
 import { decideOemCoverage } from './src/utils/oemCoverage';
+import { decideIdAlignment } from './src/utils/idAlignment';
 
 /**
  * Keeps `auditStartedAt` in step with the status: stamped when a record goes on
@@ -873,6 +876,69 @@ function findDisruptionById(rawId: string): Disruption | undefined {
 }
 
 /**
+ * Sheet rows whose Disruption ID matched nothing here.
+ *
+ * Both ID-keyed feeds skip an unmatched row and carry on, which is the right
+ * behaviour - a sheet covering other teams' stores would otherwise fail the
+ * whole sync - but it used to be completely silent. A sheet and this console
+ * can then disagree for weeks with nothing to show for it: the end times and
+ * ticket states for those rows simply never arrive.
+ *
+ * Deliberately in memory and not in the store. This is a diagnosis of the last
+ * sync, not a record of anything: persisting it would mean a stale list
+ * outliving the rows it describes, and a schema key to migrate for data that is
+ * regenerated in full every time a feed runs. A restart empties it and the next
+ * feed run fills it again; the page says plainly when that has not happened yet.
+ */
+const unmatchedSheetIds = new Map<string, UnmatchedSheetId>();
+const unmatchedCheckedFeeds = new Set<IdMatchFeedKey>();
+let unmatchedLastCheckedAt: string | null = null;
+
+/** Clears one feed's findings so a run reports what that run actually saw. */
+function beginUnmatchedScan(feed: IdMatchFeedKey): void {
+  for (const [key, entry] of unmatchedSheetIds) {
+    if (entry.feed === feed) unmatchedSheetIds.delete(key);
+  }
+}
+
+function finishUnmatchedScan(feed: IdMatchFeedKey, whenIST: string): void {
+  unmatchedCheckedFeeds.add(feed);
+  unmatchedLastCheckedAt = whenIST;
+}
+
+function noteUnmatchedSheetId(
+  feed: IdMatchFeedKey,
+  rawId: string,
+  extra: { ticketId?: string; ticketStatus?: string; endTime?: string },
+  whenIST: string
+): void {
+  const sheetDisruptionId = String(rawId ?? '').trim();
+  // A blank ID cell is an empty row, not a mismatch worth chasing.
+  if (!sheetDisruptionId) return;
+
+  const key = `${feed}|${sheetDisruptionId.toUpperCase()}`;
+  const existing = unmatchedSheetIds.get(key);
+  unmatchedSheetIds.set(key, {
+    feed,
+    sheetDisruptionId,
+    // A later row for the same ID may carry the detail an earlier one lacked.
+    ticketId: (extra.ticketId || existing?.ticketId || '').trim(),
+    ticketStatus: (extra.ticketStatus || existing?.ticketStatus || '').trim(),
+    endTime: (extra.endTime || existing?.endTime || '').trim(),
+    seenAt: whenIST,
+  });
+}
+
+/** Drops an entry once its ID exists here, so a repair clears the row at once. */
+function clearUnmatchedForId(rawId: string): void {
+  const wanted = String(rawId ?? '').trim().toUpperCase();
+  if (!wanted) return;
+  for (const [key, entry] of unmatchedSheetIds) {
+    if (entry.sheetDisruptionId.trim().toUpperCase() === wanted) unmatchedSheetIds.delete(key);
+  }
+}
+
+/**
  * Applies an end time to a record and recomputes the duration from its own
  * start. The sheet only ever supplies the end; the start is ours.
  */
@@ -1164,12 +1230,21 @@ function applyDisruptionTimingRows({ headers, rows }: { headers: string[]; rows:
     throw new Error('End Time column not found in the Disruption Timings sheet headers.');
   }
 
+  const { formattedIST } = getCurrentISTDate();
+  beginUnmatchedScan('disruptionTimings');
+
   let applied = 0;
   for (const row of rows) {
-    const record = findDisruptionById(row[idxId] || '');
-    if (!record) continue;
+    const rawId = row[idxId] || '';
+    const record = findDisruptionById(rawId);
+    if (!record) {
+      noteUnmatchedSheetId('disruptionTimings', rawId, { endTime: row[idxEnd] || '' }, formattedIST);
+      continue;
+    }
     if (applyEndTime(record, row[idxEnd] || '')) applied++;
   }
+
+  finishUnmatchedScan('disruptionTimings', formattedIST);
   return applied;
 }
 
@@ -1241,10 +1316,25 @@ function applyTicketRows({ headers, rows }: { headers: string[]; rows: string[][
     throw new Error('Disruption ID column not found in the Ticket Status sheet headers.');
   }
 
+  beginUnmatchedScan('tickets');
+
   let applied = 0;
   for (const row of rows) {
-    const record = findDisruptionById(row[idxId] || '');
-    if (!record) continue;
+    const rawId = row[idxId] || '';
+    const record = findDisruptionById(rawId);
+    if (!record) {
+      noteUnmatchedSheetId(
+        'tickets',
+        rawId,
+        {
+          ticketId: idxTicket === -1 ? '' : row[idxTicket] || '',
+          ticketStatus: idxState === -1 ? '' : row[idxState] || '',
+          endTime: idxClosed === -1 ? '' : row[idxClosed] || '',
+        },
+        formattedIST
+      );
+      continue;
+    }
     // Once a ticket is closed its fields are frozen — later syncs leave it be.
     if (record.ticketFrozenAt) continue;
 
@@ -1269,6 +1359,8 @@ function applyTicketRows({ headers, rows }: { headers: string[]; rows: string[][
     record.updatedAt = formattedIST;
     applied++;
   }
+
+  finishUnmatchedScan('tickets', formattedIST);
   return applied;
 }
 
@@ -2198,6 +2290,113 @@ async function startServer() {
 
     saveDb();
     res.json({ message: 'Disruption updated successfully.', disruption: db.disruptions[index] });
+  });
+
+  /**
+   * What the last run of each ID-keyed feed could not place.
+   *
+   * Owner-only because it is a repair console, not a report: the rows it lists
+   * are the ones whose IDs the next call is allowed to rewrite.
+   */
+  app.get('/api/id-match', ownerOnly, (_req, res) => {
+    res.json({
+      rows: Array.from(unmatchedSheetIds.values()),
+      lastCheckedAt: unmatchedLastCheckedAt,
+      checkedFeeds: Array.from(unmatchedCheckedFeeds),
+    });
+  });
+
+  /**
+   * Re-points one record at the Disruption ID a sheet uses.
+   *
+   * Two modes, and the default is the one that keeps the record honest:
+   *
+   *   align  - adopt the start minute the target ID encodes and regenerate the
+   *            ID from it. The ID then matches the sheet because both sides
+   *            derive it identically, and the start field - which duration, TAT
+   *            and every report actually read - is corrected at the same time.
+   *   idOnly - change the ID and leave the start alone. For a sheet ID that is
+   *            not in OUTLETID-YYMMDDHHMM shape, where there is no minute to
+   *            adopt. It knowingly leaves the ID and the start disagreeing, so
+   *            it is never the default.
+   *
+   * PUT /api/disruptions/:id refuses outlet and start-time edits precisely
+   * because the ID is derived from them. This endpoint is the sanctioned way
+   * through that door: it moves both halves together rather than letting one
+   * drift from the other, and it writes the change into the record's own
+   * history so the rename is not invisible afterwards.
+   */
+  app.post('/api/disruptions/:id/align-id', ownerOnly, (req, res) => {
+    const { formattedIST } = getCurrentISTDate();
+    const index = db.disruptions.findIndex((d) => d.disruptionId === req.params.id);
+    if (index === -1) {
+      return res.status(404).json({ error: 'Disruption not found.' });
+    }
+
+    const record = db.disruptions[index];
+    const decision = decideIdAlignment({
+      target: req.body?.targetDisruptionId,
+      mode: req.body?.mode,
+      record: { disruptionId: record.disruptionId, outletId: record.outletId },
+      takenIds: db.disruptions.map((d) => d.disruptionId),
+    });
+
+    if (decision.error) {
+      return res.status(400).json({ error: decision.error });
+    }
+
+    const previousId = record.disruptionId;
+    const previousStart = record.disruptionStartDateTime;
+
+    record.disruptionId = decision.newId;
+
+    if (decision.start) {
+      record.disruptionStartDate = decision.start.date;
+      record.disruptionStartTime = decision.start.time;
+      record.disruptionStartDateTime = formatDateTimeIST(decision.start.date, decision.start.time);
+      // Duration and TAT are both measured from the start, so moving it without
+      // recomputing them would leave two stale numbers behind.
+      if (record.endTime) applyEndTime(record, record.endTime);
+      recomputeDerivedTimings(record);
+    }
+
+    // The history rows carry the ID too, and a stale one there would break the
+    // update log's own lookups.
+    for (const entry of record.updateHistory || []) {
+      if (entry.disruptionId === previousId) entry.disruptionId = decision.newId;
+    }
+
+    const note = decision.start
+      ? `Disruption ID corrected from ${previousId} to ${decision.newId} to match the sheet. Start moved from ${previousStart} to ${record.disruptionStartDateTime}.`
+      : `Disruption ID corrected from ${previousId} to ${decision.newId} to match the sheet. Start time left unchanged.`;
+
+    record.updateHistory = [
+      ...(record.updateHistory || []),
+      {
+        updateId: `UPD-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        disruptionId: decision.newId,
+        updateText: note,
+        updatedBy: actor(res).email,
+        updatedAt: formattedIST,
+        previousStatus: record.currentStatus,
+        newStatus: record.currentStatus,
+      },
+    ];
+
+    record.latestLiveUpdate = cumulativeLiveUpdate(record);
+    record.updatedAt = formattedIST;
+    record.lastUpdatedAt = formattedIST;
+    record.lastUpdatedBy = actor(res).email;
+
+    clearUnmatchedForId(decision.newId);
+    saveDb();
+
+    console.log(`Disruption ${previousId} re-pointed to ${decision.newId} by ${actor(res).email}`);
+    res.json({
+      message: note,
+      previousDisruptionId: previousId,
+      disruption: record,
+    });
   });
 
   // Removing a record is destructive and unlogged, so it stays with the owner.
