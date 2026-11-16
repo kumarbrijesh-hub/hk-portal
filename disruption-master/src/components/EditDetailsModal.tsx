@@ -1,6 +1,13 @@
 import React, { useState } from 'react';
-import { X, Save, AlertCircle, Tag, Ticket } from 'lucide-react';
-import { BUCKET_OPTIONS, BucketType, Disruption } from '../types';
+import { X, Save, AlertCircle, Tag, Ticket, ShieldCheck } from 'lucide-react';
+import {
+  BUCKET_OPTIONS,
+  BucketType,
+  Disruption,
+  OemCoverage,
+  OEM_COVERAGE_OPTIONS,
+  requiresOemCoverage,
+} from '../types';
 import { StatusBadge } from './StatusBadge';
 
 interface EditDetailsModalProps {
@@ -11,7 +18,8 @@ interface EditDetailsModalProps {
 }
 
 /**
- * Corrects the Bucket and the Ticket ID on a disruption that is already logged.
+ * Corrects the Bucket, the Ticket ID and the OEM coverage on a disruption that
+ * is already logged.
  *
  * Both are routinely got wrong at creation and only settled later: the bucket
  * because whether something is a real breakdown is often not clear in the first
@@ -37,11 +45,22 @@ export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
 }) => {
   const [bucket, setBucket] = useState<BucketType | ''>(disruption.bucket);
   const [ticketId, setTicketId] = useState(disruption.ticketId ?? '');
+  // Shown only on records that were closed by OEM. It is the one field here that
+  // is mandatory once it applies, so a mis-click on the resolving update can be
+  // put right, and a record resolved before this field existed can be filled in.
+  const [oemCoverage, setOemCoverage] = useState<OemCoverage | ''>(disruption.oemCoverage ?? '');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const trimmedTicket = ticketId.trim();
-  const changed = bucket !== disruption.bucket || trimmedTicket !== (disruption.ticketId ?? '').trim();
+  const showOemCoverage = requiresOemCoverage(disruption.currentStatus);
+  const changed =
+    bucket !== disruption.bucket ||
+    trimmedTicket !== (disruption.ticketId ?? '').trim() ||
+    (showOemCoverage && oemCoverage !== (disruption.oemCoverage ?? ''));
+  // Blank is what the server refuses for a Resolved by OEM record, so say so
+  // here rather than letting the save bounce back with an error.
+  const oemCoverageMissing = showOemCoverage && !oemCoverage;
   // A Breakdown with no ticket is allowed through - it is flagged as missing in
   // the tracker and in the export, which is where it gets chased - but it is
   // worth saying so at the moment the choice is made.
@@ -56,6 +75,11 @@ export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
       return;
     }
 
+    if (oemCoverageMissing) {
+      setError(`Pick how the OEM job was covered - ${OEM_COVERAGE_OPTIONS.join(', ')}.`);
+      return;
+    }
+
     setIsSaving(true);
     try {
       const res = await fetch(`/api/disruptions/${encodeURIComponent(disruption.disruptionId)}`, {
@@ -66,6 +90,7 @@ export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
           // Sent as an empty string rather than omitted, so clearing a ticket
           // that was entered by mistake actually clears it.
           ticketId: trimmedTicket,
+          ...(showOemCoverage ? { oemCoverage } : {}),
           updatedBy: currentUser || disruption.ccPoc || 'Operator',
         }),
       });
@@ -90,7 +115,9 @@ export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
         {/* Header */}
         <div className="flex shrink-0 items-start justify-between border-b border-slate-200 p-4">
           <div>
-            <h2 className="text-base font-bold text-slate-900">Edit Bucket &amp; Ticket ID</h2>
+            <h2 className="text-base font-bold text-slate-900">
+              Edit Bucket, Ticket ID{showOemCoverage ? ' & OEM Coverage' : ''}
+            </h2>
             <p className="mt-0.5 font-mono text-xs text-slate-500">{disruption.disruptionId}</p>
           </div>
           <button
@@ -171,6 +198,42 @@ export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
               </p>
             )}
           </div>
+
+          {/* OEM coverage, only on records closed by OEM. */}
+          {showOemCoverage && (
+            <div>
+              <label htmlFor="edit-oem-coverage" className="mb-1 block text-xs font-semibold text-slate-700">
+                OEM Coverage <span className="text-rose-500">*</span>
+              </label>
+              <div className="relative">
+                <select
+                  id="edit-oem-coverage"
+                  value={oemCoverage}
+                  onChange={(e) => setOemCoverage(e.target.value as OemCoverage | '')}
+                  className={`w-full cursor-pointer appearance-none rounded-lg border bg-white py-2 pl-9 pr-3 text-xs focus:ring-2 ${
+                    oemCoverage
+                      ? 'border-slate-300 focus:border-red-500 focus:ring-red-500'
+                      : 'border-rose-400 bg-rose-50/60 text-rose-700 focus:ring-rose-500'
+                  }`}
+                >
+                  <option value="">Not selected</option>
+                  {OEM_COVERAGE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+                <ShieldCheck className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+              </div>
+              <p className="mt-1 text-[10px] text-slate-500">
+                {oemCoverageMissing
+                  ? 'Required on a record resolved by OEM.'
+                  : oemCoverage !== (disruption.oemCoverage ?? '')
+                  ? `Was ${disruption.oemCoverage || 'not set'}`
+                  : 'How this OEM job was paid for.'}
+              </p>
+            </div>
+          )}
 
           <p className="rounded-lg bg-slate-50 p-2.5 text-[10px] leading-relaxed text-slate-500">
             Outlet and disruption start time cannot be changed here — the Disruption ID is generated from them.

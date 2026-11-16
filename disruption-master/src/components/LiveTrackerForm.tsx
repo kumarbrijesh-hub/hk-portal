@@ -22,7 +22,11 @@ import {
   BucketType,
   CurrentStatus,
   OutletMaster,
+  OemCoverage,
+  OEM_COVERAGE_OPTIONS,
+  requiresOemCoverage,
   RESOLVED_STATUSES_REQUIRING_ISSUE,
+  STATUS_REQUIRING_OEM_COVERAGE,
   Disruption,
 } from '../types';
 import { generateDisruptionId } from '../utils/idGenerator';
@@ -124,6 +128,9 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
   const [bucket, setBucket] = useState<BucketType | ''>('');
   const [ticketId, setTicketId] = useState('');
   const [currentStatus, setCurrentStatus] = useState<CurrentStatus>('No Update');
+  // Only asked when the record is being logged already closed by OEM, which is
+  // rare but possible - a disruption raised and resolved inside one shift.
+  const [oemCoverage, setOemCoverage] = useState<OemCoverage | ''>('');
   const [selectedSubIssues, setSelectedSubIssues] = useState<string[]>([]);
   const [liveUpdateText, setLiveUpdateText] = useState('');
   const [internalRemarksText, setInternalRemarksText] = useState('');
@@ -236,6 +243,7 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
   // Conditional flags
   const isTicketIdMandatory = bucket === 'Breakdown';
   const isIssueMandatory = RESOLVED_STATUSES_REQUIRING_ISSUE.includes(currentStatus);
+  const needsOemCoverage = requiresOemCoverage(currentStatus);
 
   // Clear the tagging when the status moves away from a resolved one; nothing
   // is pre-selected, because guessing a sub-issue would be worse than blank.
@@ -318,6 +326,16 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
       setErrorMessage(`Select at least one Sub Issue when Current Status is "${currentStatus}".`);
       return;
     }
+
+    // The one hard stop added on purpose. Closing a job as Resolved by OEM
+    // shuts the ticket, and nobody can say afterwards whether it went on the
+    // AMC, through PI-PO or on the warranty.
+    if (needsOemCoverage && !oemCoverage) {
+      setErrorMessage(
+        `Pick how the OEM job was covered - AMC, PI-PO or Warranty - when Current Status is "${STATUS_REQUIRING_OEM_COVERAGE}".`
+      );
+      return;
+    }
     // 4. Live Update validation
     if (!liveUpdateText.trim()) {
       setErrorMessage('Live Update is mandatory. Please describe the initial operational situation.');
@@ -369,6 +387,7 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
         bucket,
         ticketId: ticketId.trim() || undefined,
         currentStatus,
+        oemCoverage: oemCoverage || '',
         subIssues: selectedSubIssues,
         latestLiveUpdate: liveUpdateText.trim(),
         createdBy: currentUser || ccPoc,
@@ -421,6 +440,7 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
       setSelectedOutlet(null);
       setTicketId('');
       setBucket('');
+      setOemCoverage('');
       setCurrentStatus('No Update');
       setLiveUpdateText('');
       setSelectedSubIssues([]);
@@ -957,6 +977,51 @@ export const LiveTrackerForm: React.FC<LiveTrackerFormProps> = ({
               </div>
             </div>
           </div>
+
+          {/* The commercial question. Only shows when the record is being
+              logged as already resolved by OEM. */}
+          {needsOemCoverage && (
+            <div
+              id="conditional-oem-coverage-section"
+              className={`p-4 rounded-lg border-2 ${
+                oemCoverage ? 'bg-emerald-50/80 border-emerald-300' : 'bg-rose-50 border-rose-400'
+              }`}
+            >
+              <label
+                htmlFor="oem-coverage-select"
+                className={`block text-xs font-bold mb-1 ${
+                  oemCoverage ? 'text-emerald-900' : 'text-rose-800'
+                }`}
+              >
+                How was this OEM job covered? <span className="font-extrabold">(Mandatory)</span>
+              </label>
+              <select
+                id="oem-coverage-select"
+                value={oemCoverage}
+                onChange={(e) => setOemCoverage(e.target.value as OemCoverage | '')}
+                // Not the native `required`, for the same reason as the update
+                // modal: the form's own message names the three options, the
+                // browser's bubble does not.
+                aria-required={true}
+                className={`w-full px-3 py-2 text-xs rounded-lg border bg-white font-medium ${
+                  oemCoverage
+                    ? 'border-emerald-300 focus:ring-2 focus:ring-emerald-500'
+                    : 'border-rose-400 text-rose-800 focus:ring-2 focus:ring-rose-500'
+                }`}
+              >
+                <option value="">Select coverage...</option>
+                {OEM_COVERAGE_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+              <p className={`mt-2 text-[11px] ${oemCoverage ? 'text-emerald-900' : 'text-rose-700'}`}>
+                Required for &ldquo;{STATUS_REQUIRING_OEM_COVERAGE}&rdquo;. Once the ticket is closed there is
+                no way to tell which it was.
+              </p>
+            </div>
+          )}
 
           {/* Sub-issue tagging, only for resolved statuses. Several may apply. */}
           {isIssueMandatory && (

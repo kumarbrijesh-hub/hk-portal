@@ -1,9 +1,13 @@
 import React, { useMemo, useState } from 'react';
-import { X, Send, Activity, AlertCircle } from 'lucide-react';
+import { X, Send, Activity, AlertCircle, ShieldCheck } from 'lucide-react';
 import {
   CurrentStatus,
   Disruption,
+  OemCoverage,
+  OEM_COVERAGE_OPTIONS,
   RESOLVED_STATUSES_REQUIRING_ISSUE,
+  requiresOemCoverage,
+  STATUS_REQUIRING_OEM_COVERAGE,
   STATUS_REQUIRING_RAC_FRT,
 } from '../types';
 import { hoursBetween } from '../utils/dateUtils';
@@ -36,6 +40,9 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
   const [internalRemarks, setInternalRemarks] = useState(disruption.internalRemarks ?? '');
   const [targetStatus, setTargetStatus] = useState<CurrentStatus>(disruption.currentStatus);
   const [selectedSubIssues, setSelectedSubIssues] = useState<string[]>(readSubIssues(disruption));
+  // Seeded from the record so a record that already carries a coverage shows it
+  // rather than asking again from blank.
+  const [oemCoverage, setOemCoverage] = useState<OemCoverage | ''>(disruption.oemCoverage ?? '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,6 +67,22 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
     targetStatus === STATUS_REQUIRING_RAC_FRT &&
     disruption.currentStatus !== STATUS_REQUIRING_RAC_FRT &&
     disruption.mstFrtMins === undefined;
+
+  /**
+   * The one field in this dialog that does block the post.
+   *
+   * Everything else here was deliberately made non-blocking, because an update
+   * nobody can file is worse than one that is tagged late. This is the
+   * exception on purpose: closing a job as Resolved by OEM shuts the ticket,
+   * and after that nobody can say whether it went on the AMC, through PI-PO or
+   * on the warranty. It is also a three-option dropdown - nothing to look up,
+   * nothing to type - so the cost of asking is a click.
+   *
+   * The block is narrow: it stops only this status change, never an ordinary
+   * update. Anyone with news to record can still record it.
+   */
+  const needsOemCoverage = requiresOemCoverage(targetStatus);
+  const oemCoverageMissing = needsOemCoverage && !oemCoverage;
 
   /**
    * Either type the minutes, or pick the arrival time and let it work them out
@@ -93,6 +116,13 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
       return;
     }
 
+    if (oemCoverageMissing) {
+      setError(
+        `Pick how the OEM job was covered - AMC, PI-PO or Warranty - before closing this as "${STATUS_REQUIRING_OEM_COVERAGE}".`
+      );
+      return;
+    }
+
     // Nothing else blocks the post. The sub-issue tagging and the RAC arrival
     // time used to be refused here, which meant an operator with news to record
     // and no answer to those two had no way to record it at all - and the news
@@ -117,6 +147,9 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
           ...(needsRacFrt && racFrtValue !== null && String(racFrtValue).trim() !== ''
             ? { racFrtMins: Number(racFrtValue) }
             : {}),
+          // Sent whenever it is filled in, not only on the resolving update, so
+          // a correction made on a later update is saved too.
+          ...(oemCoverage ? { oemCoverage } : {}),
         }),
       });
 
@@ -237,6 +270,55 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
               <p className="text-[11px] text-slate-600">
                 Pick every sub-issue that applied. The issue category is filled in from the master automatically.
                 {isIssueRequired && ' Worth filling in for this status, but you can post without it and tag later.'}
+              </p>
+            </div>
+          )}
+
+          {/* The commercial question, asked at the only moment it can be
+              answered. Red rather than amber: unlike everything else in this
+              dialog, this one will refuse the post. */}
+          {needsOemCoverage && (
+            <div
+              className={`rounded-lg border-2 p-3 space-y-2 ${
+                oemCoverageMissing ? 'border-rose-400 bg-rose-50' : 'border-emerald-300 bg-emerald-50'
+              }`}
+            >
+              <label
+                htmlFor="modal-oem-coverage"
+                className={`flex items-center gap-1.5 text-xs font-bold ${
+                  oemCoverageMissing ? 'text-rose-800' : 'text-emerald-900'
+                }`}
+              >
+                <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                How was this OEM job covered? <span className="font-extrabold">(Mandatory)</span>
+              </label>
+              <select
+                id="modal-oem-coverage"
+                value={oemCoverage}
+                onChange={(e) => setOemCoverage(e.target.value as OemCoverage | '')}
+                // Deliberately not the native `required`. The browser would
+                // block the submit with its own generic bubble, which means the
+                // form's own guard never runs and the person never reads which
+                // three options are on offer. aria-required keeps the semantics
+                // for a screen reader without hijacking the flow.
+                aria-required={true}
+                className={`w-full px-3 py-2 text-xs rounded-lg border bg-white font-medium ${
+                  oemCoverageMissing
+                    ? 'border-rose-400 text-rose-800 focus:ring-2 focus:ring-rose-500'
+                    : 'border-emerald-300 focus:ring-2 focus:ring-emerald-500'
+                }`}
+              >
+                <option value="">Select coverage...</option>
+                {OEM_COVERAGE_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+              <p className={`text-[10px] ${oemCoverageMissing ? 'text-rose-700' : 'text-emerald-800'}`}>
+                {oemCoverageMissing
+                  ? `Required to set "${STATUS_REQUIRING_OEM_COVERAGE}". Once the ticket is closed there is no way to tell which it was.`
+                  : 'Stored on the record and carried into the Master Log and the exports.'}
               </p>
             </div>
           )}
@@ -363,6 +445,11 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
               <button
                 type="submit"
                 disabled={isSubmitting}
+                title={
+                  oemCoverageMissing
+                    ? 'Pick the OEM coverage first - AMC, PI-PO or Warranty'
+                    : undefined
+                }
                 className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-md font-semibold transition flex items-center gap-1.5 disabled:opacity-50"
               >
                 <Send className="w-3.5 h-3.5" />

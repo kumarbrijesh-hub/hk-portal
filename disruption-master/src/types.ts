@@ -69,7 +69,7 @@ export function isAuditStatus(status: CurrentStatus | string): boolean {
  */
 export const PROTECTED_STATUS_REASONS: Record<string, string> = {
   'Resolved by RAC': 'Closes the disruption and requires a sub-issue',
-  'Resolved by OEM': 'Closes the disruption and requires a sub-issue',
+  'Resolved by OEM': 'Closes the disruption and requires the OEM coverage',
   'Resolved by CC': 'Closes the disruption and requires a sub-issue',
   'Resolved by Dealer': 'Requires a sub-issue',
   Disable: 'Closes the disruption',
@@ -105,6 +105,32 @@ export const RESOLVED_BY_FOR_STATUS: Record<string, 'RAC' | 'OEM' | 'Dealer' | '
  * else.
  */
 export const STATUS_REQUIRING_RAC_FRT = 'RAC Visited';
+
+/**
+ * How an OEM job was paid for.
+ *
+ * Asked only when a disruption is closed as Resolved by OEM, because that is
+ * the moment - and the only moment - when anyone knows the answer. Afterwards
+ * the ticket is shut and the commercial question ("was this on us, on the AMC,
+ * or on the warranty?") has no reliable source left.
+ *
+ * Distinct from the outlet's `amcCoverage`, which is what the store master says
+ * about the machine in general. This is what actually happened on this job.
+ */
+export type OemCoverage = 'AMC' | 'PI-PO' | 'Warranty';
+
+export const OEM_COVERAGE_OPTIONS: OemCoverage[] = ['AMC', 'PI-PO', 'Warranty'];
+
+/** The one status that cannot be set without the coverage being recorded. */
+export const STATUS_REQUIRING_OEM_COVERAGE = 'Resolved by OEM';
+
+export function requiresOemCoverage(status: CurrentStatus | string): boolean {
+  return status === STATUS_REQUIRING_OEM_COVERAGE;
+}
+
+export function isOemCoverage(value: unknown): value is OemCoverage {
+  return typeof value === 'string' && (OEM_COVERAGE_OPTIONS as string[]).includes(value);
+}
 
 export const INACTIVE_STATUSES: CurrentStatus[] = [
   'Resolved by RAC',
@@ -277,6 +303,12 @@ export interface Disruption {
   /** When a resolving status was first set, and who it credited. */
   resolvedAt?: string;
   resolvedBy?: 'RAC' | 'OEM' | 'Dealer' | 'CC';
+  /**
+   * How the OEM job was covered - AMC, PI-PO or Warranty. Mandatory on the
+   * update that closes the disruption as Resolved by OEM, and empty on every
+   * record that was never resolved by OEM.
+   */
+  oemCoverage?: OemCoverage | '';
   /** Hours from the disruption starting to it being resolved. */
   resolutionTatHours?: number;
 

@@ -212,6 +212,7 @@ export function exportActiveReportToCSV(
     'Ticket Runs',
     'Ticket Total Duration (Hrs)',
     'Current Status',
+    'OEM Coverage',
     'Issue',
     'Sub Issues',
     'Sub Issue Count',
@@ -239,6 +240,7 @@ export function exportActiveReportToCSV(
     String(rollups.get(d.disruptionId)?.occurrences ?? 1),
     ticketTotalCell(d, rollups),
     d.currentStatus,
+    d.oemCoverage || '',
     `"${readIssues(d).join(' | ').replace(/"/g, '""')}"`,
     `"${readSubIssues(d).join(' | ').replace(/"/g, '""')}"`,
     String(readSubIssues(d).length),
@@ -305,6 +307,7 @@ export function exportActiveReportToExcel(
     'Ticket Runs': rollups.get(d.disruptionId)?.occurrences ?? 1,
     'Ticket Total Duration (Hrs)': rollups.get(d.disruptionId)?.totalHours ?? '',
     'Current Status': d.currentStatus,
+    'OEM Coverage': d.oemCoverage || '',
     'Issue': readIssues(d).join(' | ') || 'N/A',
     'Sub Issues': readSubIssues(d).join(' | ') || 'N/A',
     'Sub Issue Count': readSubIssues(d).length,
@@ -335,6 +338,7 @@ export function exportActiveReportToExcel(
     { wch: 12 }, // Ticket Runs
     { wch: 24 }, // Ticket Total Duration (Hrs)
     { wch: 18 }, // Current Status
+    { wch: 16 }, // OEM Coverage
     { wch: 24 }, // Issue
     { wch: 26 }, // Sub Issues
     { wch: 16 }, // Sub Issue Count

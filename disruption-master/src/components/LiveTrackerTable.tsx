@@ -189,6 +189,7 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
       'RAC FRT (Mins)',
       'OEM FRT (Hrs, Auto)',
       'Resolved By',
+      'OEM Coverage (AMC / PI-PO / Warranty)',
       'Resolution TAT (Hrs, Auto)',
       'City Lead',
       'Regional Head',
@@ -240,6 +241,7 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
         d.mstFrtMins ?? '',
         d.oemFrtHours ?? '',
         d.resolvedBy || '',
+        d.oemCoverage || '',
         d.resolutionTatHours ?? '',
         d.cityLead || '',
         d.regionalHead || '',
@@ -721,6 +723,14 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
                     {/* Current Status */}
                     <td className="py-3 px-3 whitespace-nowrap">
                       <StatusBadge status={d.currentStatus} />
+                      {d.oemCoverage && (
+                        <span
+                          className="mt-1 block w-fit rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700"
+                          title="How this OEM job was covered"
+                        >
+                          {d.oemCoverage}
+                        </span>
+                      )}
                     </td>
 
                     {/* Issue / Sub Issues — a disruption can carry several */}

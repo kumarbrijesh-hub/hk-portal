@@ -37,6 +37,7 @@ import {
   STATUS_REQUIRING_RAC_FRT,
   STEP_STAMP_FIELDS,
 } from './src/types';
+import { decideOemCoverage } from './src/utils/oemCoverage';
 
 /**
  * Keeps `auditStartedAt` in step with the status: stamped when a record goes on
@@ -1746,6 +1747,17 @@ async function startServer() {
       });
     }
 
+    // How the OEM job was paid for. Required when the record is being logged
+    // already closed by OEM, because once that ticket is shut nobody can say
+    // whether it went on the AMC, through PI-PO or on the warranty.
+    const createCoverage = decideOemCoverage({
+      body: data,
+      targetStatus: data.currentStatus,
+    });
+    if (createCoverage.error) {
+      return res.status(400).json({ error: createCoverage.error });
+    }
+
     if (!data.latestLiveUpdate || !data.latestLiveUpdate.trim()) {
       return res.status(400).json({ error: 'Live Update is mandatory.' });
     }
@@ -1864,6 +1876,7 @@ async function startServer() {
       issues: createIssues,
       subIssue: createSubIssues[0] ?? undefined,
       issue: createIssues[0] ?? undefined,
+      oemCoverage: createCoverage.effective,
       auditStartedAt: isAuditStatus(data.currentStatus) ? formattedIST : undefined,
       latestLiveUpdate: data.latestLiveUpdate.trim(),
       // Team-only handover note. Stored with the record but deliberately left
@@ -1937,6 +1950,29 @@ async function startServer() {
     // way to say so, and an update nobody could file is worse than one that is
     // tagged a few minutes late. The tagging can be added on any later update.
 
+    /**
+     * The OEM coverage is the one exception to all of that, and deliberately so.
+     *
+     * Everything above is non-blocking because it can be filled in later. This
+     * cannot: closing a job as Resolved by OEM shuts the ticket, and afterwards
+     * there is no source left for whether the work went on the AMC, through
+     * PI-PO or on the warranty. It is also a three-option dropdown, so asking
+     * costs a click rather than a trip to find something out.
+     *
+     * The refusal is narrow on purpose - it blocks only this status change, not
+     * an ordinary update, so somebody with news to record can still record it.
+     * A coverage already on the record satisfies it, so re-setting the status
+     * does not ask twice.
+     */
+    const incomingCoverage = decideOemCoverage({
+      body: req.body,
+      targetStatus,
+      existing: disruption.oemCoverage,
+    });
+    if (incomingCoverage.error) {
+      return res.status(400).json({ error: incomingCoverage.error });
+    }
+
     // The one thing still refused: a post carrying nothing. With the text
     // optional, an empty submit would otherwise append a history row that says
     // nothing, changes nothing and is filtered out of the log anyway.
@@ -1945,6 +1981,7 @@ async function startServer() {
       targetStatus !== previousStatus ||
       (incomingSubIssues !== undefined && incomingSubIssues.length > 0) ||
       incomingRacFrt !== undefined ||
+      (incomingCoverage.value !== undefined && incomingCoverage.value !== (disruption.oemCoverage ?? '')) ||
       req.body?.internalRemarks !== undefined;
     if (!changesSomething) {
       return res.status(400).json({
@@ -2011,6 +2048,12 @@ async function startServer() {
     // The RAC arrival time is only ever asked for here, so take it when it comes.
     if (incomingRacFrt !== undefined) {
       disruption.mstFrtMins = incomingRacFrt;
+    }
+
+    // Written whenever it was sent, not only on the resolving update, so a
+    // coverage corrected on a later update is saved too.
+    if (incomingCoverage.value !== undefined) {
+      disruption.oemCoverage = incomingCoverage.value;
     }
 
     recomputeDerivedTimings(disruption);
@@ -2124,9 +2167,22 @@ async function startServer() {
       return Number.isFinite(n) && n >= 0 ? n : current;
     };
 
+    // This endpoint spreads the request body over the record, so the coverage is
+    // validated rather than trusted - a free-text value would otherwise land in
+    // the column straight from a hand-written API call.
+    const editCoverage = decideOemCoverage({
+      body: updates,
+      targetStatus,
+      existing: existing.oemCoverage,
+    });
+    if (editCoverage.error) {
+      return res.status(400).json({ error: editCoverage.error });
+    }
+
     db.disruptions[index] = {
       ...existing,
       ...updates,
+      oemCoverage: editCoverage.effective,
       subIssues: effectiveSubIssues,
       issues: effectiveIssues,
       // Singular fields mirror the first entry so the sheet export stays stable.
