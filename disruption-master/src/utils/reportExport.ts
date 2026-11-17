@@ -5,7 +5,7 @@ import { getCurrentISTDate, getReportFileTimestamp } from './dateUtils';
 import { readIssues, readSubIssues } from './issueTaxonomy';
 import { disruptionDurationHours, liveUpdateReportBlock } from './liveUpdateLog';
 import { StoreInstanceReport, ticketRollupIndex } from './ticketInstances';
-import { withLightTheme } from './theme';
+import { withExportAppearance } from './theme';
 
 /**
  * The line that identifies the system on every file that leaves it. A report
@@ -60,8 +60,12 @@ const TARGET_PIXEL_RATIO = 3;
  */
 export async function exportActiveReportToPNG(elementId: string, customFilename?: string): Promise<void> {
   // A downloaded report is a document, not a screenshot of somebody's console,
-  // so it is always the light version whichever theme the exporter is using.
-  return withLightTheme(() => captureReportToPNG(elementId, customFilename));
+  // so it is always the light palette and the fallback typefaces whichever
+  // theme and font the exporter happens to be looking at. The typeface half
+  // matters as much as the palette: `skipFonts` below means the capture renders
+  // without the webfont, and measuring the page with it while rendering the
+  // image without it lands text on top of other text.
+  return withExportAppearance(() => captureReportToPNG(elementId, customFilename));
 }
 
 async function captureReportToPNG(elementId: string, customFilename?: string): Promise<void> {

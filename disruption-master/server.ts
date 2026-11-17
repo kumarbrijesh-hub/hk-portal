@@ -2180,16 +2180,29 @@ async function startServer() {
     // The one thing still refused: a post carrying nothing. With the text
     // optional, an empty submit would otherwise append a history row that says
     // nothing, changes nothing and is filtered out of the log anyway.
+    // An internal remark counts on its own: it is a note the team keeps for
+    // itself, it reaches no report, and asking for a live update or a status
+    // change alongside it would mean inventing one of those to save a note.
+    // Compared against what is already on the record rather than merely being
+    // present, because the form posts this field on every submit - taking its
+    // presence as a change made this whole guard a no-op for the only client
+    // there is, and an empty post would have sailed through.
+    const remarksSubmitted = req.body?.internalRemarks !== undefined;
+    const remarksAreNew =
+      remarksSubmitted &&
+      String(req.body.internalRemarks).trim() !== String(disruption.internalRemarks ?? '').trim();
+
     const changesSomething =
       hasText ||
       targetStatus !== previousStatus ||
       (incomingSubIssues !== undefined && incomingSubIssues.length > 0) ||
       incomingRacFrt !== undefined ||
       (incomingCoverage.value !== undefined && incomingCoverage.value !== (disruption.oemCoverage ?? '')) ||
-      req.body?.internalRemarks !== undefined;
+      remarksAreNew;
     if (!changesSomething) {
       return res.status(400).json({
-        error: 'Nothing to post. Add update text, change the status, or tag the sub-issue.',
+        error:
+          'Nothing to post. Add update text, change the status, tag the sub-issue, or add an internal remark.',
       });
     }
 

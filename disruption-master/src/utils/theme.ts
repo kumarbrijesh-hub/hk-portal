@@ -52,6 +52,33 @@ export function initialTheme(): ThemeMode {
   }
 }
 
+/**
+ * The typefaces a downloaded report is rendered in.
+ *
+ * These are the stacks index.css declares for `--font-sans` and `--font-mono`
+ * with the webfont taken off the front, and they are duplicated here on
+ * purpose: a stylesheet cannot be imported from TypeScript, and the export has
+ * to be able to pin the document to exactly the faces the capture will use.
+ *
+ * Why it has to pin anything: the PNG is captured with `skipFonts`, which the
+ * capture needs because reading cssRules on the cross-origin Google Fonts sheet
+ * throws and aborts the whole export. So the cloned document rendered into the
+ * image has no webfont and falls back - while the element was measured on a
+ * page that did have it. The widths no longer agree and text lands on top of
+ * other text: the headline over its own subtitle, the duration figures over
+ * each other. Forcing the live document onto the fallback faces for the length
+ * of the capture makes the measurement and the render agree again.
+ *
+ * The cost is that a downloaded report is set in the system face rather than
+ * Plus Jakarta Sans, which is the same trade the light-theme forcing already
+ * makes: the document is consistent for everyone who receives it, rather than
+ * matching the console of whoever exported it.
+ */
+const EXPORT_SANS =
+  "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+const EXPORT_MONO =
+  "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace";
+
 /** Lets the browser finish a style and layout pass before anything reads it. */
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => {
@@ -60,7 +87,8 @@ function nextFrame(): Promise<void> {
 }
 
 /**
- * Runs `fn` with the document forced back to light, then restores.
+ * Runs `fn` with the document forced into the appearance a downloaded report
+ * has - light palette, fallback typefaces - then restores.
  *
  * The report export uses this. A downloaded PNG is a document that gets
  * forwarded, pasted into a deck and printed, so it has to look the same however
@@ -76,9 +104,13 @@ function nextFrame(): Promise<void> {
  * change instant, and the two frames after it make sure the browser has
  * actually recomputed before the capture looks.
  */
-export async function withLightTheme<T>(fn: () => Promise<T>): Promise<T> {
+export async function withExportAppearance<T>(fn: () => Promise<T>): Promise<T> {
   const root = document.documentElement;
   const wasDark = root.classList.contains('dark');
+  // Saved and put back rather than simply cleared: an inline value already on
+  // the element would otherwise be lost.
+  const priorSans = root.style.getPropertyValue('--font-sans');
+  const priorMono = root.style.getPropertyValue('--font-mono');
 
   // Frozen even when the console is already light. A row mid-hover or a
   // spinner part-way through its turn is the same class of defect, and a
@@ -89,17 +121,24 @@ export async function withLightTheme<T>(fn: () => Promise<T>): Promise<T> {
   document.head.appendChild(freeze);
 
   if (wasDark) root.classList.remove('dark');
+  root.style.setProperty('--font-sans', EXPORT_SANS);
+  root.style.setProperty('--font-mono', EXPORT_MONO);
   await nextFrame();
 
   try {
     return await fn();
   } finally {
-    if (wasDark) {
-      root.classList.add('dark');
-      // Same hazard in reverse: leave the freeze in place until the dark
-      // palette has been applied, or the console itself animates back in.
-      await nextFrame();
-    }
+    // Restored before the frame below, so the console is back on its own
+    // typeface by the time anything is painted again.
+    if (priorSans) root.style.setProperty('--font-sans', priorSans);
+    else root.style.removeProperty('--font-sans');
+    if (priorMono) root.style.setProperty('--font-mono', priorMono);
+    else root.style.removeProperty('--font-mono');
+
+    if (wasDark) root.classList.add('dark');
+    // Same hazard in reverse: leave the freeze in place until the palette and
+    // the typeface have been put back, or the console animates back in.
+    await nextFrame();
     freeze.remove();
   }
 }

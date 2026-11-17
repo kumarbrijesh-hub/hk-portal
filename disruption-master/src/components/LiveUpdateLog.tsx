@@ -30,11 +30,17 @@ export const LiveUpdateLog: React.FC<LiveUpdateLogProps> = ({ disruption, compac
 
   return (
     <div title={text}>
-      <p className={`text-xs leading-relaxed text-slate-700 ${compact ? 'line-clamp-3' : ''}`}>
+      {/* slate-900, not slate-700. This is the column people actually read on a
+          downloaded report, and at 11-12px on a white page the mid-slate step
+          was washing out - worse once the PNG is printed or viewed on a phone
+          in daylight. The weight is nudged up for the same reason: the cell is
+          the account of the disruption, so it should read like body copy rather
+          than like a caption. */}
+      <p className={`text-xs leading-relaxed font-medium text-slate-900 ${compact ? 'line-clamp-3' : ''}`}>
         {text}
       </p>
       {compact && count > 1 && (
-        <span className="mt-0.5 block text-[10px] font-semibold text-slate-400">
+        <span className="mt-0.5 block text-[10px] font-semibold text-slate-500">
           {count} updates
         </span>
       )}

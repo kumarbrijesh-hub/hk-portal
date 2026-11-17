@@ -15,6 +15,7 @@ import { StatusBadge } from './StatusBadge';
 import { SubIssuePicker } from './SubIssuePicker';
 import { readSubIssues } from '../utils/issueTaxonomy';
 import { liveUpdateEntries } from '../utils/liveUpdateLog';
+import { hasSomethingToPost, NOTHING_TO_POST_MESSAGE } from '../utils/livePostContent';
 
 interface LiveUpdateModalProps {
   disruption: Disruption;
@@ -108,11 +109,24 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
     // The text is optional now, but the post still has to carry something.
     // Blank everything would append an entry that says nothing and shows up
     // nowhere, so it is refused here rather than silently stored.
+    //
+    // An internal remark counts on its own. It is a note the team keeps for
+    // itself and it reaches no report, so demanding a live update or a status
+    // change alongside it asked the operator to fabricate one of those in order
+    // to save it.
     const statusChanged = targetStatus !== disruption.currentStatus;
     const hasRacFrt =
       needsRacFrt && racFrtValue !== null && String(racFrtValue).trim() !== '';
-    if (!updateText.trim() && !statusChanged && selectedSubIssues.length === 0 && !hasRacFrt) {
-      setError('Nothing to post yet. Write an update, change the status, or tag the sub-issue.');
+    const somethingToPost = hasSomethingToPost({
+      updateText,
+      statusChanged,
+      subIssues: selectedSubIssues,
+      hasRacFrt,
+      remarks: internalRemarks,
+      existingRemarks: disruption.internalRemarks ?? '',
+    });
+    if (!somethingToPost) {
+      setError(NOTHING_TO_POST_MESSAGE);
       return;
     }
 
@@ -443,6 +457,7 @@ export const LiveUpdateModal: React.FC<LiveUpdateModalProps> = ({
                 Cancel
               </button>
               <button
+                id="live-update-submit"
                 type="submit"
                 disabled={isSubmitting}
                 title={

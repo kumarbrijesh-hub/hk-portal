@@ -31,6 +31,7 @@ import {
   exportActiveReportToCSV,
   exportActiveReportToExcel,
   exportActiveReportToPNG,
+  orderByDisruptionVolume,
 } from '../utils/reportExport';
 import { getCurrentISTDate, formatReportGeneratedTimestamp, calculateDurationHours } from '../utils/dateUtils';
 import { readIssues, readSubIssues } from '../utils/issueTaxonomy';
@@ -219,13 +220,34 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
     );
   };
 
+  // Worst store first, the same rule the Master Log and the CSV / Excel exports
+  // already use: the outlet breaking most often leads, and within an outlet the
+  // newest disruption comes first.
+  //
+  // This is the ordering that kept going missing from the downloaded report.
+  // orderByDisruptionVolume was only ever called inside the export functions
+  // and the Master Log, and the PNG is a capture of THIS markup rather than of
+  // the export path - so the image came out in whatever order the records
+  // happened to arrive in. Ordering the rows here, where they are rendered, is
+  // what makes the screen and every downloaded form of the report agree, and is
+  // why it cannot quietly drift apart again.
+  //
+  // Ordered once over the whole filtered set and only then split into the two
+  // tables, not ordered per table: the counts that decide the ranking have to
+  // be an outlet's real total, and this is also the set the CSV is built from,
+  // so the two files list the same stores in the same order.
+  const orderedActiveDisruptions = useMemo(
+    () => orderByDisruptionVolume(filteredActiveDisruptions),
+    [filteredActiveDisruptions]
+  );
+
   const standardActiveDisruptions = useMemo(() => {
-    return filteredActiveDisruptions.filter((d) => !isAuditOrNonAdmin(d));
-  }, [filteredActiveDisruptions]);
+    return orderedActiveDisruptions.filter((d) => !isAuditOrNonAdmin(d));
+  }, [orderedActiveDisruptions]);
 
   const auditActiveDisruptions = useMemo(() => {
-    return filteredActiveDisruptions.filter((d) => isAuditOrNonAdmin(d));
-  }, [filteredActiveDisruptions]);
+    return orderedActiveDisruptions.filter((d) => isAuditOrNonAdmin(d));
+  }, [orderedActiveDisruptions]);
 
   // Audit holds past their window. Taken from every active record rather than
   // the filtered set, so a filter cannot hide one that needs clearing.

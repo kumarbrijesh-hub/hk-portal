@@ -1,79 +1,51 @@
 import React from 'react';
-import { CurrentStatus, BucketType } from '../types';
+import { BucketType, CurrentStatus } from '../types';
+import { BadgeTone, bucketTone, statusTone, toneStyle } from '../utils/badgeTones';
+
+/**
+ * The chip shape, shared by both badges.
+ *
+ * A leading dot, a hairline and a semibold label. The dot is not decoration:
+ * these chips are read side by side in a column on a report that gets printed
+ * and forwarded, so the state has to survive a greyscale printer and a reader
+ * who cannot separate the tints. The dot plus the word carries it; the colour
+ * is the third cue, not the only one.
+ */
+const Chip: React.FC<{ tone: BadgeTone; label: string; title?: string }> = ({ tone, label, title }) => {
+  const { chip, dot } = toneStyle(tone);
+  return (
+    <span
+      title={title}
+      className={`inline-flex items-center gap-1.5 pl-1.5 pr-2 py-[3px] rounded-md border text-[11px] font-semibold tracking-tight whitespace-nowrap shadow-2xs ${chip}`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} aria-hidden="true" />
+      {label}
+    </span>
+  );
+};
 
 interface StatusBadgeProps {
   status: CurrentStatus | string;
 }
 
-export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
-  let badgeClasses = 'bg-slate-100 text-slate-700 border-slate-200';
-
-  switch (status) {
-    case 'No Update':
-      badgeClasses = 'bg-slate-100 text-slate-800 border-slate-300 font-semibold';
-      break;
-    case 'RAC Aligned':
-    case 'OEM Aligned':
-      badgeClasses = 'bg-blue-50 text-blue-700 border-blue-200';
-      break;
-    case 'RAC Visited':
-    case 'OEM Visited':
-      badgeClasses = 'bg-indigo-50 text-indigo-700 border-indigo-200';
-      break;
-    case 'Auto Disable':
-      badgeClasses = 'bg-rose-100 text-rose-800 border-rose-300 font-bold';
-      break;
-    case 'Disable':
-      badgeClasses = 'bg-slate-200 text-slate-800 border-slate-300';
-      break;
-    case 'Disruption':
-      badgeClasses = 'bg-red-50 text-red-700 border-red-200 font-semibold';
-      break;
-    case 'Known Admin Issue':
-      badgeClasses = 'bg-purple-50 text-purple-700 border-purple-200';
-      break;
-    case 'Audit in Process':
-      badgeClasses = 'bg-amber-50 text-amber-800 border-amber-300';
-      break;
-    case 'Resolved by RAC':
-    case 'Resolved by OEM':
-    case 'Resolved by Dealer':
-    case 'Resolved by CC':
-      badgeClasses = 'bg-emerald-50 text-emerald-700 border-emerald-200';
-      break;
-  }
-
-  return (
-    <span
-      className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium border ${badgeClasses} whitespace-nowrap`}
-    >
-      {status}
-    </span>
-  );
-};
+export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => (
+  <Chip tone={statusTone(status)} label={status} />
+);
 
 export const BucketBadge: React.FC<{ bucket: BucketType | string }> = ({ bucket }) => {
-  let badgeClasses = 'bg-slate-100 text-slate-700 border-slate-200';
-  if (bucket === 'Breakdown') {
-    badgeClasses = 'bg-red-50 text-red-700 border-red-200 font-semibold';
-  } else if (bucket === 'Non Breakdown') {
-    badgeClasses = 'bg-amber-50 text-amber-700 border-amber-200';
-  } else if (bucket === 'False Alarm / Invalid') {
-    badgeClasses = 'bg-slate-100 text-slate-600 border-slate-200';
-  } else if (!bucket) {
-    // Deliberately loud. A blank bucket is not an error, but it is unfinished
-    // work, and it should be obvious at a glance in the tracker - not only on
-    // the form that left it blank.
+  // Deliberately loud, and deliberately different text rather than only a
+  // different colour. A blank bucket is not an error, but it is unfinished
+  // work, and it should be obvious at a glance in the tracker - not only on the
+  // form that left it blank.
+  if (!bucket) {
     return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold border bg-rose-50 text-rose-700 border-rose-300 whitespace-nowrap">
-        Bucket not set
-      </span>
+      <Chip
+        tone="alert"
+        label="Bucket not set"
+        title="No bucket was chosen for this disruption yet"
+      />
     );
   }
 
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium border ${badgeClasses} whitespace-nowrap`}>
-      {bucket}
-    </span>
-  );
+  return <Chip tone={bucketTone(bucket)} label={bucket} />;
 };

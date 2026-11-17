@@ -1,6 +1,31 @@
 @import "tailwindcss";
 
 /*
+ * The typeface.
+ *
+ * index.html has been preconnecting to Google Fonts and pulling down Plus
+ * Jakarta Sans and JetBrains Mono since the first build - and nothing ever used
+ * them. Tailwind's `font-sans` and `font-mono` resolve through `--font-sans`
+ * and `--font-mono`, neither of which was defined, so every screen fell back to
+ * the browser's system stack while the console paid for two webfont downloads
+ * it then ignored. Defining the tokens here is what actually puts the fonts on
+ * the page.
+ *
+ * The system stack stays on as the fallback rather than being replaced, for
+ * two reasons: the first paint happens before the webfont arrives, and the PNG
+ * export captures with `skipFonts` (it has to - reading cssRules on the
+ * cross-origin Google sheet throws and aborts the whole capture), so the
+ * downloaded report renders in the fallback. The nearest system faces are
+ * listed first so the image stays close to what was on screen.
+ */
+@theme {
+  --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono',
+    monospace;
+}
+
+/*
  * Dark mode.
  *
  * The console is written in one palette - white and slate surfaces with pale
@@ -95,6 +120,13 @@ html.dark .border-red-200 { border-color: #5c2a2e; }
 html.dark .border-amber-100 { border-color: #463819; }
 html.dark .border-amber-200 { border-color: #574522; }
 html.dark .border-emerald-200 { border-color: #1f5139; }
+/* The status and bucket chips draw their hairline from these. Added with the
+   chips themselves: an outline the dark theme does not know about renders as a
+   bright light-mode border around a dark tint. */
+html.dark .border-emerald-300 { border-color: #27603f; }
+html.dark .border-emerald-700 { border-color: #0b7a53; }
+html.dark .border-yellow-200 { border-color: #574e22; }
+html.dark .border-rose-300 { border-color: #6b3144; }
 html.dark .border-blue-200 { border-color: #24375c; }
 html.dark .border-sky-200 { border-color: #1f3a52; }
 html.dark .border-indigo-200 { border-color: #2f3463; }
