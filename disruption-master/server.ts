@@ -41,6 +41,7 @@ import {
 } from './src/types';
 import { decideOemCoverage } from './src/utils/oemCoverage';
 import { decideIdAlignment } from './src/utils/idAlignment';
+import { decidePasswordChange } from './src/utils/appPassword';
 
 /**
  * Keeps `auditStartedAt` in step with the status: stamped when a record goes on
@@ -116,22 +117,80 @@ const OWNER_EMAILS = (process.env.OWNER_EMAILS ?? 'kumarbrijesh@grofers.com')
  * Unset, the console accepts any address on an allowed domain with no password
  * at all, which is why a missing file is worth a loud line in the log.
  */
-function resolveAppPassword(): string {
-  const direct = (process.env.APP_PASSWORD ?? '').trim();
-  if (direct) return direct;
+/**
+ * Where an owner-set password is kept.
+ *
+ * APP_PASSWORD_FILE points into the database volume, which this container mounts
+ * read-only - deliberately, so nothing in the app can write near the Postgres
+ * data directory. So the owner's own choice goes on the app's own writable
+ * volume instead, and takes precedence over the generated one. No manifest
+ * change is needed for that: the path is derived from DATA_DIR, which is already
+ * set and already a mounted PVC.
+ *
+ * Plain text at 0600, which is the same shape the generated file already has.
+ * Hashing only this one would mean two comparison paths for one shared console
+ * password, and the thing it would protect against - someone who can read the
+ * volume - can read the database beside it anyway.
+ */
+const APP_PASSWORD_OVERRIDE_FILE =
+  (process.env.APP_PASSWORD_OVERRIDE_FILE ?? '').trim() || path.join(DATA_DIR, 'app-password');
 
-  const file = (process.env.APP_PASSWORD_FILE ?? '').trim();
-  if (!file) return '';
+function readPasswordFile(file: string, label: string): string {
   try {
     return fs.readFileSync(file, 'utf-8').trim();
-  } catch (err) {
-    console.error(`[Auth] Could not read APP_PASSWORD_FILE (${file}):`, err);
+  } catch (err: unknown) {
+    // A missing override is the normal case until someone sets one.
+    if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+      console.error(`[Auth] Could not read ${label} (${file}):`, err);
+    }
     return '';
   }
 }
 
-const APP_PASSWORD = resolveAppPassword();
-const PASSWORD_REQUIRED = APP_PASSWORD.length > 0;
+function resolveAppPassword(): string {
+  const direct = (process.env.APP_PASSWORD ?? '').trim();
+  if (direct) return direct;
+
+  const override = readPasswordFile(APP_PASSWORD_OVERRIDE_FILE, 'the owner-set password');
+  if (override) return override;
+
+  const file = (process.env.APP_PASSWORD_FILE ?? '').trim();
+  if (!file) return '';
+  return readPasswordFile(file, 'APP_PASSWORD_FILE');
+}
+
+// Not const: the owner can change it from Settings, and both of these are read
+// at request time rather than captured, so a change takes effect immediately
+// and without a restart.
+let APP_PASSWORD = resolveAppPassword();
+let PASSWORD_REQUIRED = APP_PASSWORD.length > 0;
+
+/**
+ * Stores a new password and puts it in force.
+ *
+ * Written to a temp file and renamed, like the store is: a half-written password
+ * file would lock everyone out of the console, and the rename is the only step
+ * that cannot be interrupted half way.
+ */
+function persistAppPassword(next: string): void {
+  const tmp = `${APP_PASSWORD_OVERRIDE_FILE}.tmp`;
+  fs.writeFileSync(tmp, `${next}\n`, { encoding: 'utf-8', mode: 0o600 });
+  fs.renameSync(tmp, APP_PASSWORD_OVERRIDE_FILE);
+  try {
+    fs.chmodSync(APP_PASSWORD_OVERRIDE_FILE, 0o600);
+  } catch {
+    // Some volume drivers refuse chmod; the write above already asked for 0600.
+  }
+  APP_PASSWORD = next;
+  PASSWORD_REQUIRED = next.length > 0;
+}
+
+/** Timing-safe, so a wrong guess tells nothing by how long it took. */
+function passwordMatches(supplied: string): boolean {
+  const a = Buffer.from(supplied);
+  const b = Buffer.from(APP_PASSWORD);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 if (!PASSWORD_REQUIRED) {
   console.warn(
     '[Auth] No password is set - any address on an allowed domain can sign in.'
@@ -1499,10 +1558,7 @@ async function startServer() {
     }
 
     if (PASSWORD_REQUIRED) {
-      const supplied = String(req.body?.password ?? '');
-      const a = Buffer.from(supplied);
-      const b = Buffer.from(APP_PASSWORD);
-      const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
+      const ok = passwordMatches(String(req.body?.password ?? ''));
       if (!ok) {
         recordFailedLogin(key);
         console.warn(`[Auth] Sign-in rejected: wrong password for ${maskEmail(email)}.`);
@@ -1531,6 +1587,62 @@ async function startServer() {
       user: toSessionUser(user),
       token,
       expiresAt,
+    });
+  });
+
+  /**
+   * Changes the shared sign-in password.
+   *
+   * Owner-only, and the current password has to be re-entered even so: an owner
+   * console left open on an unlocked laptop is the likeliest way this gets
+   * misused, and that is the case the re-entry covers.
+   *
+   * Nothing about the value is logged, here or anywhere - not its length, not a
+   * prefix. The whole point of generating it in-cluster was that it appears in
+   * no log, manifest or commit, and a change made from here keeps that true.
+   *
+   * Sessions already signed in stay signed in. They were issued against an
+   * address, not against the password, and ending them would also end the
+   * session of whoever is making the change.
+   */
+  app.post('/api/auth/password', (req, res) => {
+    // The session is resolved here rather than read off res.locals: the /api
+    // gate that populates res.locals.user is mounted AFTER the /api/auth routes,
+    // so on this path it has not run and res.locals.user is undefined. Using the
+    // ownerOnly middleware would have the same problem, and reordering the
+    // routes would move the sign-in route behind the gate that sign-in exists to
+    // get through.
+    const requester = userFromRequest(req);
+    if (!requester || requester.role !== 'owner') {
+      return res.status(403).json({ error: 'Only the owner account can change the sign-in password.' });
+    }
+
+    const suppliedCurrent = String(req.body?.currentPassword ?? '');
+    const decision = decidePasswordChange({
+      next: req.body?.newPassword,
+      confirm: req.body?.confirmPassword,
+      currentMatches: passwordMatches(suppliedCurrent),
+      passwordRequired: PASSWORD_REQUIRED,
+      sameAsCurrent: PASSWORD_REQUIRED && passwordMatches(String(req.body?.newPassword ?? '')),
+    });
+
+    if (decision.error) {
+      return res.status(400).json({ error: decision.error });
+    }
+
+    try {
+      persistAppPassword(decision.next);
+    } catch (err) {
+      console.error('[Auth] Could not write the new password file:', err);
+      return res.status(500).json({
+        error: 'The new password could not be saved to disk. The old one is still in force.',
+      });
+    }
+
+    console.log(`[Auth] Sign-in password changed by ${maskEmail(requester.email)}.`);
+    res.json({
+      message: 'Sign-in password changed. Everyone will need the new one next time they sign in.',
+      passwordRequired: PASSWORD_REQUIRED,
     });
   });
 

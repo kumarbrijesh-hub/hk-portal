@@ -317,3 +317,29 @@ export async function alignDisruptionId(
 
   return await res.json();
 }
+
+/**
+ * Owner-only. Changes the shared console sign-in password.
+ *
+ * The value goes straight from the owner's browser to the file the server reads
+ * it from. It is never put in a manifest, a commit or a log, which is the same
+ * promise the in-cluster generated password was built on.
+ */
+export async function changeAppPassword(args: {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}): Promise<{ message: string; passwordRequired: boolean }> {
+  const res = await fetch(`${API_BASE}/auth/password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || `Could not change the password (${res.status}).`);
+  }
+
+  return await res.json();
+}

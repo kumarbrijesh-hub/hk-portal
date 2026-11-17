@@ -31,6 +31,7 @@ import {
   PROTECTED_STATUS_REASONS,
   statusOptionsFrom,
 } from '../types';
+import { PasswordCard } from './PasswordCard';
 import { formatSpecFor, templateCsvFor } from '../data/sheetFormats';
 import { countDataRows, readSpreadsheetAsCsv } from '../utils/spreadsheetFile';
 import { SheetFormatHelp } from './SheetFormatHelp';
@@ -310,6 +311,11 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Sign-in password. Above the feeds on purpose: it is the one control
+          here that locks people out if it goes wrong, so it should not be found
+          by scrolling past a dozen sheet settings. Renders for the owner only. */}
+      <PasswordCard isOwner={isOwner} />
 
       {/* Sync Diagnostics & Status Card */}
       <div className="bg-slate-900 text-white rounded-xl shadow-xs border border-slate-800 p-5 grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
