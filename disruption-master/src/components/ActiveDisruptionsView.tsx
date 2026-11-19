@@ -26,7 +26,12 @@ import { AUDIT_HOLD_LIMIT_HOURS, Disruption, isAutoDisabled, isDisruptionActive,
 import { StatusBadge, BucketBadge } from './StatusBadge';
 import { LiveUpdateLog } from './LiveUpdateLog';
 import { BrandMark } from './BrandMark';
-import { hoursLabel, runHours, ticketRollupIndex } from '../utils/ticketInstances';
+import {
+  hoursLabel,
+  reportedDurationHours,
+  runHours,
+  ticketRollupIndex,
+} from '../utils/ticketInstances';
 import {
   exportActiveReportToCSV,
   exportActiveReportToExcel,
@@ -1029,13 +1034,15 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                 standardActiveDisruptions.map((d, index) => {
                   const isPinned = activeRowId === d.disruptionId;
                   const isDuplicate = duplicateOutletIds.has((d.outletId || '').trim());
-                  const durationHours = elapsedOrFinalHours(d);
+                  // One figure, and it is the whole time this ticket has had the
+                  // store down - see reportedDurationHours. On a single-run
+                  // ticket this is the row's own hours, so nothing changes
+                  // there; on a repeat it is the sum, which is the number the
+                  // column is read for.
+                  const durationHours = reportedDurationHours(d, ticketRollups);
                   const durHrs = durationHours === null ? '-' : durationHours.toFixed(1);
                   const rollup = ticketRollups.get(d.disruptionId);
                   const ticketRuns = rollup?.occurrences ?? 1;
-                  // Only worth showing when the ticket has run before: on a
-                  // first run the combined figure is the same number twice.
-                  const combinedHours = ticketRuns > 1 ? rollup?.totalHours ?? null : null;
 
                   return (
                     <tr
@@ -1094,23 +1101,25 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                         <BucketBadge bucket={d.bucket} />
                       </td>
 
-                      {/* Dur (Hrs) in bold red. When the same ticket has gone
-                          down before, the combined figure sits underneath: this
-                          run on its own answers the wrong question once a store
-                          has auto-disabled and come back twice. */}
-                      <td className="py-3 px-3 whitespace-nowrap font-mono font-bold text-rose-600 text-xs">
+                      {/* Dur (Hrs) in bold red. One number: the whole time this
+                          ticket has had the store down. A second "N total" line
+                          used to sit underneath and it made the column
+                          unanswerable - the reader got the run's own hours
+                          first and the real figure second, and had to work out
+                          which was which. The repeat is still stated, in the
+                          Ticket ID column, where "RUN 2 OF 3" says it without
+                          putting a second duration on the page. */}
+                      <td
+                        className="py-3 px-3 whitespace-nowrap font-mono font-bold text-rose-600 text-xs"
+                        title={
+                          ticketRuns > 1
+                            ? `${ticketRuns} runs on ticket ${rollup?.ticket} add up to ${hoursLabel(
+                                durationHours
+                              )}`
+                            : undefined
+                        }
+                      >
                         {durHrs}
-                        {combinedHours !== null && (
-                          <span
-                            className="mt-1 flex items-center gap-1 font-sans text-[10px] font-bold text-amber-700"
-                            title={`${ticketRuns} runs on ticket ${rollup?.ticket} add up to ${hoursLabel(
-                              combinedHours
-                            )}`}
-                          >
-                            <Repeat className="w-3 h-3 shrink-0" />
-                            {combinedHours.toFixed(1)} total
-                          </span>
-                        )}
                       </td>
 
                       {/* Status */}
@@ -1249,7 +1258,9 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                 <tbody className="divide-y divide-purple-100 bg-white">
                   {auditActiveDisruptions.map((d, index) => {
                     const isPinned = activeRowId === d.disruptionId;
-                    const durationHours = elapsedOrFinalHours(d);
+                    // Same rule as the table above, so the two halves of one
+                    // report cannot answer "how long" differently.
+                    const durationHours = reportedDurationHours(d, ticketRollups);
                     const durHrs = durationHours === null ? '-' : durationHours.toFixed(1);
                     const hold = auditHoldState(d);
 

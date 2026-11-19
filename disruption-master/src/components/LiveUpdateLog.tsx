@@ -5,12 +5,20 @@ import { cumulativeLiveUpdate, liveUpdateCount } from '../utils/liveUpdateLog';
 interface LiveUpdateLogProps {
   disruption: Disruption;
   /**
-   * In a table cell a long account would stretch the row out of shape, so the
-   * compact form clamps it to a few lines. The hover text always carries the
-   * whole thing.
+   * The table-cell form: a fixed-width column that wraps, with the number of
+   * updates underneath.
+   *
+   * It used to clamp the text to three lines as well, and that was the wrong
+   * call for a report. The cell is the account of the disruption - what broke,
+   * who went, what they found - and a report that ends it in an ellipsis is a
+   * report whose most-read column cannot be read. The width is what keeps the
+   * row in shape; the height is allowed to grow.
    */
   compact?: boolean;
 }
+
+/** The space the column gets. Fixed, so a long account grows downwards. */
+const COLUMN_WIDTH = 'w-[330px] max-w-[330px]';
 
 /**
  * The running account of a disruption, as one continuous line of text.
@@ -29,16 +37,18 @@ export const LiveUpdateLog: React.FC<LiveUpdateLogProps> = ({ disruption, compac
   const count = liveUpdateCount(disruption);
 
   return (
-    <div title={text}>
+    <div title={text} className={compact ? COLUMN_WIDTH : undefined}>
       {/* slate-900, not slate-700. This is the column people actually read on a
           downloaded report, and at 11-12px on a white page the mid-slate step
           was washing out - worse once the PNG is printed or viewed on a phone
           in daylight. The weight is nudged up for the same reason: the cell is
           the account of the disruption, so it should read like body copy rather
-          than like a caption. */}
-      <p className={`text-xs leading-relaxed font-medium text-slate-900 ${compact ? 'line-clamp-3' : ''}`}>
-        {text}
-      </p>
+          than like a caption.
+
+          break-words because an account can carry a ticket reference or a URL
+          with no space in it, and one long token in a fixed-width column would
+          otherwise push the whole table sideways instead of wrapping. */}
+      <p className="text-xs leading-relaxed font-medium text-slate-900 break-words">{text}</p>
       {compact && count > 1 && (
         <span className="mt-0.5 block text-[10px] font-semibold text-slate-500">
           {count} updates

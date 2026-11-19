@@ -144,6 +144,32 @@ export function ticketRollupIndex(all: Disruption[]): Map<string, TicketRollup> 
   return index;
 }
 
+/**
+ * The one duration figure a report shows for a row.
+ *
+ * "How long has this store been down" is the question the column is read for,
+ * and when a fault has produced several records under one ticket the honest
+ * answer is the sum of them: a store that went down for four hours, came back,
+ * and has been down two more has been down six, not two.
+ *
+ * The Active report used to print the run's own hours with the combined figure
+ * on a second line underneath - "20.4" over "67.0 total" - which left the reader
+ * to decide which of the two numbers was the answer, and the first one they read
+ * was the wrong one. One number now, and the "RUN 2 OF 3" badge in the Ticket ID
+ * column is what says it covers more than this run.
+ *
+ * Falls back to the row's own hours when the record carries no ticket, which is
+ * what the rollup index already stores for an untagged record.
+ */
+export function reportedDurationHours(
+  d: Disruption,
+  rollups: Map<string, TicketRollup>
+): number | null {
+  const rollup = rollups.get(d.disruptionId);
+  if (!rollup) return runHours(d);
+  return rollup.totalHours;
+}
+
 /** Hours as a cell, blank while nothing about the duration is known. */
 export function hoursLabel(hours: number | null): string {
   return hours === null ? '' : `${hours.toFixed(2)} Hrs`;
