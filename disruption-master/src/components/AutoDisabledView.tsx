@@ -132,7 +132,7 @@ export const AutoDisabledView: React.FC<AutoDisabledViewProps> = ({
               {/* The bay says what it is leaving out, rather than quietly
                   showing a shorter list than the data holds. */}
               {supersededCount > 0 && (
-                <p className="text-[11px] text-slate-500 mt-0.5">
+                <p className="text-[11px] text-amber-200/80 mt-0.5">
                   {supersededCount} more parked row{supersededCount === 1 ? '' : 's'} hidden — the same ticket
                   has gone live again, so {supersededCount === 1 ? 'it is' : 'they are'} being worked on the
                   Active board. Still in the Master Log and in the ticket&rsquo;s history.

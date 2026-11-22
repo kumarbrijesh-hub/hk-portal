@@ -16,6 +16,7 @@ import { ConfigView } from './components/ConfigView';
 import { PerformanceSummaryView } from './components/PerformanceSummaryView';
 import { WeeklyDisruptionReport } from './components/WeeklyDisruptionReport';
 import { CityTrendsView } from './components/CityTrendsView';
+import { supersededParkedIds } from './utils/ticketPropagation';
 import { LiveUpdateModal } from './components/LiveUpdateModal';
 import { UpdateHistoryModal } from './components/UpdateHistoryModal';
 import { EditDetailsModal } from './components/EditDetailsModal';
@@ -497,7 +498,17 @@ export default function App() {
   // The header counts have to match the pages they point at: Auto Disable is
   // still an open disruption, but it lives on its own page and is counted there.
   const activeCount = disruptions.filter((d) => isOnActiveBoard(d.currentStatus)).length;
-  const autoDisabledCount = disruptions.filter((d) => isAutoDisabled(d.currentStatus)).length;
+  /**
+   * Counted the same way the parking bay lists, superseded rows excluded. The
+   * badge and the page have to agree: a badge saying 10 over a page showing 6
+   * is read as a bug, not as a distinction.
+   */
+  const autoDisabledCount = useMemo(() => {
+    const superseded = supersededParkedIds(disruptions);
+    return disruptions.filter(
+      (d) => isAutoDisabled(d.currentStatus) && !superseded.has(d.disruptionId)
+    ).length;
+  }, [disruptions]);
 
   if (auth === null) {
     return (

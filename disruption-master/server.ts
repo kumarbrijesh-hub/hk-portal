@@ -25,6 +25,8 @@ import {
   SyncStatus,
   SyncStatuses,
   UnmatchedSheetId,
+  MatchedSheetId,
+  IdMatchFeedTally,
 } from './src/types';
 import { formatDateTimeIST, formatToIST, getCurrentISTDate, hoursBetween } from './src/utils/dateUtils';
 import { deriveIssues, readIssues, readSubIssues } from './src/utils/issueTaxonomy';
@@ -954,16 +956,80 @@ const unmatchedSheetIds = new Map<string, UnmatchedSheetId>();
 const unmatchedCheckedFeeds = new Set<IdMatchFeedKey>();
 let unmatchedLastCheckedAt: string | null = null;
 
+/**
+ * The other half of the same diagnosis: rows that DID hit a record.
+ *
+ * Listing only the failures could not answer the question people actually have
+ * after an upload - "did it work". A short mismatch list says nothing about
+ * whether the other nine hundred rows landed or whether the file was ignored
+ * wholesale, and that doubt is why the same sheet was being uploaded over and
+ * over.
+ *
+ * `matchedTally` is the truth and is uncapped; `matchedSheetIds` is the list
+ * the page shows and is capped, because a feed can carry thousands of rows and
+ * the report is sent over the wire on every page load. Same lifetime as the
+ * unmatched register: in memory, regenerated in full by every feed run.
+ */
+const matchedSheetIds = new Map<string, MatchedSheetId>();
+const MATCHED_LIST_CAP = 500;
+const matchedTally: Record<IdMatchFeedKey, IdMatchFeedTally> = {
+  disruptionTimings: { matched: 0, unmatched: 0, applied: 0 },
+  tickets: { matched: 0, unmatched: 0, applied: 0 },
+};
+
 /** Clears one feed's findings so a run reports what that run actually saw. */
 function beginUnmatchedScan(feed: IdMatchFeedKey): void {
   for (const [key, entry] of unmatchedSheetIds) {
     if (entry.feed === feed) unmatchedSheetIds.delete(key);
   }
+  for (const [key, entry] of matchedSheetIds) {
+    if (entry.feed === feed) matchedSheetIds.delete(key);
+  }
+  matchedTally[feed] = { matched: 0, unmatched: 0, applied: 0 };
 }
 
 function finishUnmatchedScan(feed: IdMatchFeedKey, whenIST: string): void {
   unmatchedCheckedFeeds.add(feed);
   unmatchedLastCheckedAt = whenIST;
+}
+
+/** Records a sheet row that found its record. */
+function noteMatchedSheetId(
+  feed: IdMatchFeedKey,
+  rawId: string,
+  record: Disruption,
+  extra: { ticketId?: string; ticketStatus?: string; endTime?: string },
+  applied: boolean,
+  whenIST: string
+): void {
+  const sheetDisruptionId = String(rawId ?? '').trim();
+  if (!sheetDisruptionId) return;
+
+  matchedTally[feed].matched += 1;
+  if (applied) matchedTally[feed].applied += 1;
+
+  const key = `${feed}|${sheetDisruptionId.toUpperCase()}`;
+  // Past the cap, keep counting but stop keeping rows - unless this ID is
+  // already listed, in which case the existing entry is refreshed rather than
+  // the row being dropped on the floor.
+  if (!matchedSheetIds.has(key) && matchedSheetIds.size >= MATCHED_LIST_CAP) return;
+
+  const existing = matchedSheetIds.get(key);
+  matchedSheetIds.set(key, {
+    feed,
+    sheetDisruptionId,
+    disruptionId: record.disruptionId,
+    outletId: record.outletId || '',
+    storeName: record.storeName || '',
+    city: record.city || '',
+    ticketId: (extra.ticketId || existing?.ticketId || record.ticketId || '').trim(),
+    ticketStatus: (extra.ticketStatus || existing?.ticketStatus || '').trim(),
+    endTime: (extra.endTime || existing?.endTime || '').trim(),
+    // A single matched ID can appear on several rows of one feed; if any of
+    // them changed something, the ID changed something.
+    applied: applied || Boolean(existing?.applied),
+    seenAt: whenIST,
+  });
 }
 
 function noteUnmatchedSheetId(
@@ -1299,9 +1365,19 @@ function applyDisruptionTimingRows({ headers, rows }: { headers: string[]; rows:
     const record = findDisruptionById(rawId);
     if (!record) {
       noteUnmatchedSheetId('disruptionTimings', rawId, { endTime: row[idxEnd] || '' }, formattedIST);
+      matchedTally.disruptionTimings.unmatched += 1;
       continue;
     }
-    if (applyEndTime(record, row[idxEnd] || '')) applied++;
+    const changed = applyEndTime(record, row[idxEnd] || '');
+    if (changed) applied++;
+    noteMatchedSheetId(
+      'disruptionTimings',
+      rawId,
+      record,
+      { endTime: row[idxEnd] || '' },
+      changed,
+      formattedIST
+    );
   }
 
   finishUnmatchedScan('disruptionTimings', formattedIST);
@@ -1393,15 +1469,37 @@ function applyTicketRows({ headers, rows }: { headers: string[]; rows: string[][
         },
         formattedIST
       );
+      matchedTally.tickets.unmatched += 1;
       continue;
     }
-    // Once a ticket is closed its fields are frozen — later syncs leave it be.
-    if (record.ticketFrozenAt) continue;
 
     const ticketId = idxTicket === -1 ? '' : (row[idxTicket] || '').trim();
     const state = idxState === -1 ? '' : (row[idxState] || '').trim();
     const closedAt = idxClosed === -1 ? '' : (row[idxClosed] || '').trim();
-    if (!ticketId && !state && !closedAt) continue;
+    // Read before the early exits below, so a row that matched but changed
+    // nothing is still reported as matched rather than vanishing. "Matched and
+    // already in step" is the normal steady state and has to be visible, or the
+    // page implies the row never arrived.
+    const noteMatch = (applied: boolean) =>
+      noteMatchedSheetId(
+        'tickets',
+        rawId,
+        record,
+        { ticketId, ticketStatus: state, endTime: closedAt },
+        applied,
+        formattedIST
+      );
+
+    // Once a ticket is closed its fields are frozen — later syncs leave it be.
+    if (record.ticketFrozenAt) {
+      noteMatch(false);
+      continue;
+    }
+
+    if (!ticketId && !state && !closedAt) {
+      noteMatch(false);
+      continue;
+    }
 
     if (ticketId) record.ticketId = ticketId;
     if (state) record.ticketStatus = state;
@@ -1418,6 +1516,7 @@ function applyTicketRows({ headers, rows }: { headers: string[]; rows: string[][
 
     record.updatedAt = formattedIST;
     applied++;
+    noteMatch(true);
   }
 
   finishUnmatchedScan('tickets', formattedIST);
@@ -2475,6 +2574,13 @@ async function startServer() {
   app.get('/api/id-match', ownerOnly, (_req, res) => {
     res.json({
       rows: Array.from(unmatchedSheetIds.values()),
+      matched: Array.from(matchedSheetIds.values()),
+      tally: matchedTally,
+      matchedListCappedAt:
+        matchedTally.disruptionTimings.matched + matchedTally.tickets.matched >
+        matchedSheetIds.size
+          ? MATCHED_LIST_CAP
+          : null,
       lastCheckedAt: unmatchedLastCheckedAt,
       checkedFeeds: Array.from(unmatchedCheckedFeeds),
     });

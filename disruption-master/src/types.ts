@@ -474,8 +474,54 @@ export interface UnmatchedSheetId {
   seenAt: string;
 }
 
+/**
+ * A sheet row whose Disruption ID DID find a record here.
+ *
+ * Kept for one reason: a page that lists only the failures cannot answer "did
+ * my upload work". Reading a short list of mismatches told nobody whether the
+ * other nine hundred rows had landed or whether the file had been ignored
+ * wholesale, which is exactly the doubt that made people upload the sheet again
+ * and again.
+ */
+export interface MatchedSheetId {
+  feed: IdMatchFeedKey;
+  /** Exactly as the sheet spells it, trimmed only. */
+  sheetDisruptionId: string;
+  /** The record it hit, which may be spelled differently in case. */
+  disruptionId: string;
+  outletId: string;
+  storeName: string;
+  city: string;
+  ticketId: string;
+  ticketStatus: string;
+  endTime: string;
+  /**
+   * Whether the row actually changed anything here. A matched row that changed
+   * nothing is the normal steady state, not a problem - but it is a different
+   * answer from "this row updated the record", and the page says which.
+   */
+  applied: boolean;
+  seenAt: string;
+}
+
+export interface IdMatchFeedTally {
+  matched: number;
+  unmatched: number;
+  /** Matched rows that changed a value here. */
+  applied: number;
+}
+
 export interface IdMatchReport {
   rows: UnmatchedSheetId[];
+  /**
+   * Matched rows, newest scan only, capped for transport - `tally` carries the
+   * true counts, so a sheet bigger than the cap still reports honestly.
+   */
+  matched: MatchedSheetId[];
+  /** Per-feed counts over the whole of the last scan, uncapped. */
+  tally: Record<IdMatchFeedKey, IdMatchFeedTally>;
+  /** How many matched rows the list was capped at, or null when it was not. */
+  matchedListCappedAt: number | null;
   /** IST stamp of the last feed run, or null if none has run since boot. */
   lastCheckedAt: string | null;
   /** Which of the two feeds has been read since boot. */

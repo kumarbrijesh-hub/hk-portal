@@ -282,8 +282,15 @@ export async function fetchIdMatchReport(): Promise<IdMatchReport> {
     throw new Error(`Could not read the ID match report (${res.status}).`);
   }
   const data = await res.json();
+  const emptyTally = { matched: 0, unmatched: 0, applied: 0 };
   return {
     rows: data.rows || [],
+    matched: data.matched || [],
+    tally: {
+      disruptionTimings: data.tally?.disruptionTimings ?? { ...emptyTally },
+      tickets: data.tally?.tickets ?? { ...emptyTally },
+    },
+    matchedListCappedAt: data.matchedListCappedAt ?? null,
     lastCheckedAt: data.lastCheckedAt ?? null,
     checkedFeeds: data.checkedFeeds || [],
   };
