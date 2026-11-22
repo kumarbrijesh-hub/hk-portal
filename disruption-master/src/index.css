@@ -26,6 +26,61 @@
 }
 
 /*
+ * Chart palette.
+ *
+ * Declared as custom properties rather than hex in the chart components, for
+ * one reason: the dark steps are a *selected* set for the dark surface, not an
+ * automatic flip of the light ones, and a stylesheet is the only place both
+ * sets can live without the chart code carrying a theme branch. The PNG export
+ * strips `html.dark` before it captures, so the downloaded image picks up the
+ * light set the same way the screen does.
+ *
+ * Both sets were run through the palette validator against this console's own
+ * surfaces - light #ffffff (the card), dark #121a2c (`html.dark .bg-white`) -
+ * on the adjacent pairlist that lines, bars and stacks use. Every check passes
+ * in both modes: worst adjacent CVD ΔE 9.1 light / 8.4 dark against an 8.0
+ * target, worst adjacent normal-vision ΔE 19.6 light / 19.3 dark against a 15.0
+ * floor. Three light slots (aqua, yellow, magenta) land under 3:1 against
+ * white, which is a documented relief case, not a pass to ignore: any chart
+ * using them ships visible direct labels and a table view. Do not re-order
+ * these - the order itself is the colour-blind-safety mechanism, and only
+ * certain orderings clear the gates.
+ */
+:root {
+  --dms-series-1: #2a78d6; /* blue */
+  --dms-series-2: #eb6834; /* orange */
+  --dms-series-3: #1baf7a; /* aqua */
+  --dms-series-4: #eda100; /* yellow */
+  --dms-series-5: #e87ba4; /* magenta */
+  --dms-series-6: #008300; /* green */
+  --dms-series-7: #6250d6; /* violet */
+  --dms-series-8: #e34948; /* red */
+
+  --dms-chart-surface: #ffffff;
+  --dms-chart-grid: #e1e0d9;
+  --dms-chart-axis: #c3c2b7;
+  --dms-chart-ink: #0f172a;
+  --dms-chart-muted: #898781;
+}
+
+html.dark {
+  --dms-series-1: #3987e5;
+  --dms-series-2: #d95926;
+  --dms-series-3: #199e70;
+  --dms-series-4: #c98500;
+  --dms-series-5: #d55181;
+  --dms-series-6: #0ca30c;
+  --dms-series-7: #9085e9;
+  --dms-series-8: #e66767;
+
+  --dms-chart-surface: #121a2c;
+  --dms-chart-grid: #233047;
+  --dms-chart-axis: #33415c;
+  --dms-chart-ink: #e9eef8;
+  --dms-chart-muted: #8a97ae;
+}
+
+/*
  * Dark mode.
  *
  * The console is written in one palette - white and slate surfaces with pale

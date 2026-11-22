@@ -15,6 +15,7 @@ import { IdMatchView } from './components/IdMatchView';
 import { ConfigView } from './components/ConfigView';
 import { PerformanceSummaryView } from './components/PerformanceSummaryView';
 import { WeeklyDisruptionReport } from './components/WeeklyDisruptionReport';
+import { CityTrendsView } from './components/CityTrendsView';
 import { LiveUpdateModal } from './components/LiveUpdateModal';
 import { UpdateHistoryModal } from './components/UpdateHistoryModal';
 import { EditDetailsModal } from './components/EditDetailsModal';
@@ -628,6 +629,8 @@ export default function App() {
 
         {/* TAB 6: DATE-WISE PERFORMANCE SUMMARY */}
         {activeTab === 'weekly' && <WeeklyDisruptionReport disruptions={disruptions} />}
+
+        {activeTab === 'cityTrends' && <CityTrendsView disruptions={disruptions} />}
 
         {activeTab === 'summary' && <PerformanceSummaryView disruptions={disruptions} />}
 

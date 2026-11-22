@@ -11,6 +11,7 @@ import {
   Layers,
   FileSpreadsheet,
   BarChart3,
+  LineChart,
   LogOut,
   Pencil,
   ShieldCheck,
@@ -31,6 +32,7 @@ export type AppTab =
   | 'activeDisruptions'
   | 'autoDisabled'
   | 'weekly'
+  | 'cityTrends'
   | 'summary'
   | 'instances'
   | 'idMatch'
@@ -366,6 +368,20 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <CalendarRange className="w-4 h-4" />
             <span>Weekly Count</span>
+          </button>
+
+          <button
+            id="nav-city-trends"
+            type="button"
+            onClick={() => setActiveTab('cityTrends')}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all whitespace-nowrap ${
+              activeTab === 'cityTrends'
+                ? 'bg-sky-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <LineChart className="w-4 h-4" />
+            <span>City Trend</span>
           </button>
 
           <button
