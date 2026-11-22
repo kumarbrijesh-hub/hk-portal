@@ -14,6 +14,7 @@
 
 import { Disruption, isDisruptionActive } from '../types';
 import { hoursBetween, parseISTTimestamp } from './dateUtils';
+import { runHours } from './ticketInstances';
 
 export interface DailySummary {
   /** YYYY-MM-DD, the key the rows sort on. */
@@ -36,6 +37,19 @@ export interface DailySummary {
   maxClosureHours: number | null;
   /** Elapsed time of records still open, reported apart from the settled total. */
   openElapsedHours: number;
+  /**
+   * Every record's own run added up, open ones included - the same figure the
+   * Store Instances page reports as Total Hrs.
+   *
+   * It exists because the two pages were quietly answering different questions
+   * with the same word. `closedDowntimeHours` counts only records that have a
+   * closure and measures start to ticket closure; Store Instances counts every
+   * record and measures the disruption's own duration, falling back to time
+   * elapsed while it is still running. Neither is wrong, and neither is a
+   * substitute for the other, so both are reported here with labels that say
+   * which is which rather than one being silently changed to match.
+   */
+  allRecordHours: number;
 }
 
 export interface SummaryTotals {
@@ -46,6 +60,8 @@ export interface SummaryTotals {
   closedDowntimeHours: number;
   meanClosureHours: number | null;
   datesCovered: number;
+  /** See DailySummary.allRecordHours. */
+  allRecordHours: number;
 }
 
 export interface PerformanceSummary {
@@ -170,6 +186,7 @@ export function buildPerformanceSummary(
       }
 
       const closedDowntime = closureTimes.reduce((a, b) => a + b, 0);
+      const allHours = records.reduce((sum, d) => sum + (runHours(d) ?? 0), 0);
 
       return {
         date,
@@ -184,6 +201,7 @@ export function buildPerformanceSummary(
         meanClosureHours: closureTimes.length ? round(closedDowntime / closureTimes.length, 2) : null,
         maxClosureHours: closureTimes.length ? round(Math.max(...closureTimes), 2) : null,
         openElapsedHours: round(openElapsed),
+        allRecordHours: round(allHours),
       };
     });
 
@@ -199,6 +217,10 @@ export function buildPerformanceSummary(
     closedDowntimeHours: round(totalClosedDowntime),
     meanClosureHours: totalClosed ? round(totalClosedDowntime / totalClosed, 2) : null,
     datesCovered: days.length,
+    // Summed over the scoped records directly rather than over the rounded
+    // per-day figures, so the headline does not drift from the detail by a
+    // tenth of an hour per date.
+    allRecordHours: round(scoped.reduce((sum, d) => sum + (runHours(d) ?? 0), 0)),
   };
 
   return { days, totals, closureTrendDelta: closureTrend(days) };

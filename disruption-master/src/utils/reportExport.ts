@@ -368,7 +368,7 @@ const INSTANCE_HEADERS = [
   'City',
   'Vendor',
   'Instances (Unique Tickets + Untagged)',
-  'Disruption Rows',
+  'Number of Disruptions',
   'Unique Ticket IDs',
   'Repeat Rows On A Ticket',
   'Rows With No Ticket ID',
@@ -416,7 +416,7 @@ export function exportStoreInstancesToCSV(report: StoreInstanceReport, filterNot
     quoted(instanceMethodNote(report)),
     quoted(filterNote || 'All stores in the window'),
     quoted(`Total Instances: ${report.totalInstances}`),
-    quoted(`Total Disruption Rows: ${report.totalRecords}`),
+    quoted(`Total Number of Disruptions: ${report.totalRecords}`),
     quoted(`Stores Affected: ${report.rows.length}`),
     ...(report.undatedRecords > 0
       ? [quoted(`Excluded (no readable start time): ${report.undatedRecords}`)]
@@ -450,7 +450,7 @@ export function exportStoreInstancesToExcel(report: StoreInstanceReport, filterN
     { Rank: instanceMethodNote(report) },
     { Rank: filterNote || 'All stores in the window' },
     { Rank: `Total Instances: ${report.totalInstances}` },
-    { Rank: `Total Disruption Rows: ${report.totalRecords}` },
+    { Rank: `Total Number of Disruptions: ${report.totalRecords}` },
     { Rank: `Stores Affected: ${report.rows.length}` },
     ...(report.undatedRecords > 0
       ? [{ Rank: `Excluded (no readable start time): ${report.undatedRecords}` }]
@@ -465,7 +465,7 @@ export function exportStoreInstancesToExcel(report: StoreInstanceReport, filterN
     City: r.city,
     Vendor: r.vendor,
     'Instances (Unique Tickets + Untagged)': r.instances,
-    'Disruption Rows': r.records,
+    'Number of Disruptions': r.records,
     'Unique Ticket IDs': r.uniqueTickets,
     'Repeat Rows On A Ticket': r.repeatRecords,
     'Rows With No Ticket ID': r.untaggedRecords,

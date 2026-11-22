@@ -13,6 +13,7 @@ import {
   Image as ImageIcon,
   RefreshCw,
   FileSpreadsheet,
+  Info,
 } from 'lucide-react';
 import { Disruption } from '../types';
 import {
@@ -121,7 +122,8 @@ export const PerformanceSummaryView: React.FC<PerformanceSummaryViewProps> = ({ 
       'Non Breakdown',
       'Closed',
       'Still Open',
-      'Closed Downtime (Hrs)',
+      'Total Hours - All Records',
+      'Closed Downtime (Hrs) - Closed Only',
       'Mean Closure (Hrs)',
       'Longest Closure (Hrs)',
       'Open Elapsed (Hrs)',
@@ -134,6 +136,7 @@ export const PerformanceSummaryView: React.FC<PerformanceSummaryViewProps> = ({ 
       d.nonBreakdownCount,
       d.closedCount,
       d.openCount,
+      d.allRecordHours,
       d.closedDowntimeHours,
       d.meanClosureHours,
       d.maxClosureHours,
@@ -155,6 +158,7 @@ export const PerformanceSummaryView: React.FC<PerformanceSummaryViewProps> = ({ 
         '',
         csvCell(totals.closedCount),
         csvCell(totals.openCount),
+        csvCell(totals.allRecordHours),
         csvCell(totals.closedDowntimeHours),
         csvCell(totals.meanClosureHours),
         '',
@@ -322,7 +326,7 @@ export const PerformanceSummaryView: React.FC<PerformanceSummaryViewProps> = ({ 
         </div>
 
         {/* KPI row */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
           <StatTile
             label="Total Disruptions"
             value={String(totals.disruptionCount)}
@@ -337,10 +341,21 @@ export const PerformanceSummaryView: React.FC<PerformanceSummaryViewProps> = ({ 
             icon={<Store className="w-4 h-4" />}
             accent="text-blue-600"
           />
+          {/* Both hour figures, side by side and each labelled with what it
+              counts. They do not match and are not meant to: this page used to
+              show only the closed one while Store Instances showed only the
+              other, and the two numbers were read as the same thing. */}
           <StatTile
-            label="Closed Downtime"
+            label="Total Hours · All Records"
+            value={`${totals.allRecordHours.toFixed(1)}h`}
+            hint="every record, still-open ones included"
+            icon={<Timer className="w-4 h-4" />}
+            accent="text-slate-600"
+          />
+          <StatTile
+            label="Closed Downtime · Closed Only"
             value={`${totals.closedDowntimeHours.toFixed(1)}h`}
-            hint={`${totals.closedCount} closed record${totals.closedCount === 1 ? '' : 's'}`}
+            hint={`${totals.closedCount} closed record${totals.closedCount === 1 ? '' : 's'}, start to closure`}
             icon={<Timer className="w-4 h-4" />}
             accent="text-amber-600"
           />
@@ -358,6 +373,23 @@ export const PerformanceSummaryView: React.FC<PerformanceSummaryViewProps> = ({ 
             icon={<CalendarRange className="w-4 h-4" />}
             accent="text-rose-600"
           />
+        </div>
+
+        {/* Why the two hour figures differ. This is the single most confusing
+            thing on the screen, so it is answered where both tiles are. */}
+        <div className="flex items-start gap-2 rounded-xl bg-blue-50 border border-blue-200 px-4 py-3">
+          <Info className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />
+          <p className="text-xs text-slate-700 leading-relaxed">
+            The two hour figures count different things and will not match.{' '}
+            <strong className="font-semibold">Total Hours · All Records</strong> adds up every record&rsquo;s own
+            run, including the ones still open, and is the same figure the{' '}
+            <strong className="font-semibold">Store Instances</strong> page reports as Total Hrs — so the two
+            pages agree when the date range and outlets match.{' '}
+            <strong className="font-semibold">Closed Downtime · Closed Only</strong> takes just the records that
+            have a closure and measures from the disruption start to the ticket closure, which is the figure the
+            mean and the trend are built on. A still-running disruption has no closure, so it cannot be in the
+            second number without inventing one.
+          </p>
         </div>
 
         {/* Charts — one measure per axis, never two scales on one plot */}
@@ -435,7 +467,15 @@ export const PerformanceSummaryView: React.FC<PerformanceSummaryViewProps> = ({ 
                   <th className="py-2.5 px-3 text-center">Non Breakdown</th>
                   <th className="py-2.5 px-3 text-center">Closed</th>
                   <th className="py-2.5 px-3 text-center">Open</th>
-                  <th className="py-2.5 px-3 text-right">Closed Downtime</th>
+                  <th className="py-2.5 px-3 text-right" title="Every record on this date, still-open ones included">
+                    Total Hours
+                  </th>
+                  <th
+                    className="py-2.5 px-3 text-right"
+                    title="Only the records that have a closure, measured start to ticket closure"
+                  >
+                    Closed Downtime
+                  </th>
                   <th className="py-2.5 px-3 text-right">Mean Closure</th>
                   <th className="py-2.5 px-3 text-right">Longest Closure</th>
                 </tr>
@@ -443,7 +483,7 @@ export const PerformanceSummaryView: React.FC<PerformanceSummaryViewProps> = ({ 
               <tbody className="divide-y divide-slate-100">
                 {days.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-8 text-center text-slate-400">
+                    <td colSpan={11} className="py-8 text-center text-slate-400">
                       No disruptions match these filters.
                     </td>
                   </tr>
@@ -459,6 +499,7 @@ export const PerformanceSummaryView: React.FC<PerformanceSummaryViewProps> = ({ 
                       <td className="py-2.5 px-3 text-center font-mono text-amber-700">{d.nonBreakdownCount}</td>
                       <td className="py-2.5 px-3 text-center font-mono text-emerald-700">{d.closedCount}</td>
                       <td className="py-2.5 px-3 text-center font-mono text-slate-500">{d.openCount}</td>
+                      <td className="py-2.5 px-3 text-right font-mono">{d.allRecordHours.toFixed(1)}h</td>
                       <td className="py-2.5 px-3 text-right font-mono">{d.closedDowntimeHours.toFixed(1)}h</td>
                       <td className="py-2.5 px-3 text-right font-mono font-semibold">
                         {d.meanClosureHours === null ? '—' : `${d.meanClosureHours.toFixed(2)}h`}
@@ -480,6 +521,9 @@ export const PerformanceSummaryView: React.FC<PerformanceSummaryViewProps> = ({ 
                     <td className="py-2.5 px-3 text-center font-mono">{totals.closedCount}</td>
                     <td className="py-2.5 px-3 text-center font-mono">{totals.openCount}</td>
                     <td className="py-2.5 px-3 text-right font-mono">
+                      {totals.allRecordHours.toFixed(1)}h
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-bold">
                       {totals.closedDowntimeHours.toFixed(1)}h
                     </td>
                     <td className="py-2.5 px-3 text-right font-mono">

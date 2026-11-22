@@ -12,9 +12,15 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { Disruption, isAutoDisabled } from '../types';
+import { supersededParkedIds } from '../utils/ticketPropagation';
 import { StatusBadge, BucketBadge } from './StatusBadge';
 import { LiveUpdateLog } from './LiveUpdateLog';
-import { ticketRollupIndex, hoursLabel, runHours } from '../utils/ticketInstances';
+import {
+  hoursLabel,
+  runHours,
+  ticketRepeatBadge,
+  ticketRollupIndex,
+} from '../utils/ticketInstances';
 import { hoursSince } from '../utils/dateUtils';
 import { formatHoursMinutes } from '../utils/auditHold';
 
@@ -57,9 +63,29 @@ export const AutoDisabledView: React.FC<AutoDisabledViewProps> = ({
     return () => clearInterval(id);
   }, []);
 
+  /**
+   * Parked rows a later run of the same ticket has overtaken. They stay in the
+   * database, the Master Log, the counts and the ticket's history - this only
+   * takes them off the bay, because a row whose ticket is live again somewhere
+   * else is not waiting for anybody here.
+   */
+  const superseded = useMemo(() => supersededParkedIds(allDisruptions), [allDisruptions]);
+
   const parked = useMemo(
-    () => allDisruptions.filter((d) => isAutoDisabled(d.currentStatus)),
-    [allDisruptions]
+    () =>
+      allDisruptions.filter(
+        (d) => isAutoDisabled(d.currentStatus) && !superseded.has(d.disruptionId)
+      ),
+    [allDisruptions, superseded]
+  );
+
+  /** Kept for the header line, so the bay says what it is not showing. */
+  const supersededCount = useMemo(
+    () =>
+      allDisruptions.filter(
+        (d) => isAutoDisabled(d.currentStatus) && superseded.has(d.disruptionId)
+      ).length,
+    [allDisruptions, superseded]
   );
 
   // Built over every record, not just the parked ones: the earlier runs of a
@@ -103,6 +129,15 @@ export const AutoDisabledView: React.FC<AutoDisabledViewProps> = ({
               <p className="text-xs text-slate-400">
                 Parked, not closed — the ticket is still open and the fault is still there.
               </p>
+              {/* The bay says what it is leaving out, rather than quietly
+                  showing a shorter list than the data holds. */}
+              {supersededCount > 0 && (
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {supersededCount} more parked row{supersededCount === 1 ? '' : 's'} hidden — the same ticket
+                  has gone live again, so {supersededCount === 1 ? 'it is' : 'they are'} being worked on the
+                  Active board. Still in the Master Log and in the ticket&rsquo;s history.
+                </p>
+              )}
             </div>
           </div>
 
@@ -215,9 +250,12 @@ export const AutoDisabledView: React.FC<AutoDisabledViewProps> = ({
                             {d.ticketId}
                           </div>
                           {occurrences > 1 && (
-                            <span className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-bold">
-                              <Repeat className="w-3 h-3" />
-                              RUN {occurrences}
+                            <span
+                              className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-bold"
+                              title={ticketRepeatBadge(occurrences, rollup?.ticket).title}
+                            >
+                              <Repeat className="w-3 h-3 shrink-0" />
+                              {ticketRepeatBadge(occurrences, rollup?.ticket).text}
                             </span>
                           )}
                         </>

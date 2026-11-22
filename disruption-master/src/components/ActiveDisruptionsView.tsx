@@ -30,6 +30,7 @@ import {
   hoursLabel,
   reportedDurationHours,
   runHours,
+  ticketRepeatBadge,
   ticketRollupIndex,
 } from '../utils/ticketInstances';
 import {
@@ -1107,7 +1108,7 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                           unanswerable - the reader got the run's own hours
                           first and the real figure second, and had to work out
                           which was which. The repeat is still stated, in the
-                          Ticket ID column, where "RUN 2 OF 3" says it without
+                          Ticket ID column, where "Raised 3 times" says it without
                           putting a second duration on the page. */}
                       <td
                         className="py-3 px-3 whitespace-nowrap font-mono font-bold text-rose-600 text-xs"
@@ -1143,7 +1144,7 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                       </td>
 
                       {/* Ticket ID in bold blue, with which run of it this row
-                          is - "RUN 3 OF 3" next to a two-hour duration is what
+                          is - "Raised 3 times" next to a two-hour duration is what
                           tells somebody the store has really been down six. */}
                       <td className="py-3 px-3 whitespace-nowrap">
                         {d.ticketId ? (
@@ -1151,17 +1152,25 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                             <span className="font-mono font-semibold text-blue-600">
                               {d.ticketId}
                             </span>
-                            {ticketRuns > 1 && (
-                              <span
-                                className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-bold"
-                                title={`This outlet has gone down ${ticketRuns} times on this ticket`}
-                              >
-                                <Repeat className="w-3 h-3" />
-                                RUN{' '}
-                                {(rollup?.records.findIndex((r) => r.disruptionId === d.disruptionId) ?? 0) + 1} OF{' '}
-                                {ticketRuns}
-                              </span>
-                            )}
+                            {ticketRuns > 1 &&
+                              (() => {
+                                const badge = ticketRepeatBadge(
+                                  ticketRuns,
+                                  rollup?.ticket,
+                                  (rollup?.records.findIndex(
+                                    (r) => r.disruptionId === d.disruptionId
+                                  ) ?? 0) + 1
+                                );
+                                return (
+                                  <span
+                                    className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-bold"
+                                    title={badge.title}
+                                  >
+                                    <Repeat className="w-3 h-3 shrink-0" />
+                                    {badge.text}
+                                  </span>
+                                );
+                              })()}
                           </>
                         ) : (
                           <span className="text-slate-400 font-mono">—</span>

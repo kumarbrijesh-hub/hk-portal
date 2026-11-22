@@ -40,6 +40,7 @@ import {
   STEP_STAMP_FIELDS,
 } from './src/types';
 import { decideOemCoverage } from './src/utils/oemCoverage';
+import { planTicketPropagation } from './src/utils/ticketPropagation';
 import { decideIdAlignment } from './src/utils/idAlignment';
 import { decidePasswordChange } from './src/utils/appPassword';
 
@@ -2275,12 +2276,60 @@ async function startServer() {
 
     recomputeDerivedTimings(disruption);
 
+    /**
+     * Closing a ticket says what the fault was, and that answer belongs to every
+     * run of it - not only to the row that happened to be open when somebody
+     * clicked resolve. A store that went down five times on one ticket used to
+     * read as four untagged disruptions and one diagnosed one.
+     *
+     * Only empty fields are filled, and no earlier row's status is touched: the
+     * ticket still reads as down, parked, down, parked, resolved by OEM. What
+     * gets written is recorded on each row's own history, so the trail says the
+     * value was carried over rather than typed there.
+     */
+    const propagated = planTicketPropagation(disruption, db.disruptions);
+    for (const change of propagated) {
+      const target = db.disruptions.find((r) => r.disruptionId === change.disruptionId);
+      if (!target) continue;
+      if (change.subIssues) {
+        target.subIssues = change.subIssues;
+        target.subIssue = change.subIssue ?? '';
+      }
+      if (change.issues) {
+        target.issues = change.issues;
+        target.issue = change.issue ?? '';
+      }
+      if (change.oemCoverage !== undefined) {
+        target.oemCoverage = change.oemCoverage as Disruption['oemCoverage'];
+      }
+      target.updatedAt = formattedIST;
+      target.updateHistory = (target.updateHistory || []).concat([
+        {
+          updateId: `prop-${Date.now()}-${target.disruptionId}`,
+          disruptionId: target.disruptionId,
+          updateText:
+            `Carried over from ${disruption.disruptionId} when ticket ${disruption.ticketId} was ` +
+            `closed as "${targetStatus}": ${change.filled.join(', ')}.`,
+          updatedBy: updatedBy || disruption.ccPoc || 'Operator',
+          updatedAt: formattedIST,
+          previousStatus: target.currentStatus,
+          newStatus: target.currentStatus,
+        },
+      ]);
+      recomputeDerivedTimings(target);
+    }
+
     saveDb();
 
     res.json({
-      message: 'Live update added successfully.',
+      message:
+        propagated.length > 0
+          ? `Live update added. Issue and coverage carried over to ${propagated.length} earlier ` +
+            `run${propagated.length === 1 ? '' : 's'} of ticket ${disruption.ticketId}.`
+          : 'Live update added successfully.',
       disruption,
       newUpdate: historyItem,
+      propagatedTo: propagated.map((p) => p.disruptionId),
     });
   });
 

@@ -155,7 +155,7 @@ export function ticketRollupIndex(all: Disruption[]): Map<string, TicketRollup> 
  * The Active report used to print the run's own hours with the combined figure
  * on a second line underneath - "20.4" over "67.0 total" - which left the reader
  * to decide which of the two numbers was the answer, and the first one they read
- * was the wrong one. One number now, and the "RUN 2 OF 3" badge in the Ticket ID
+ * was the wrong one. One number now, and the "Raised 3 times" badge in the Ticket ID
  * column is what says it covers more than this run.
  *
  * Falls back to the row's own hours when the record carries no ticket, which is
@@ -320,5 +320,47 @@ export function buildStoreInstanceReport(
     totalRecords: inWindow.length,
     totalInstances: rows.reduce((sum, r) => sum + r.instances, 0),
     undatedRecords,
+  };
+}
+
+/** 1 -> "1st", 2 -> "2nd", 11 -> "11th". */
+export function ordinal(n: number): string {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1:
+      return `${n}st`;
+    case 2:
+      return `${n}nd`;
+    case 3:
+      return `${n}rd`;
+    default:
+      return `${n}th`;
+  }
+}
+
+/**
+ * What the repeat badge says.
+ *
+ * It used to read "RUN 6 OF 6", which is not a sentence and not a unit anyone
+ * on the floor uses - the number that matters is how many times this ticket has
+ * been raised, so the badge says exactly that and the tooltip carries the rest.
+ * `position` is 1-based and optional: the parked page knows the count but not
+ * which run a row is.
+ */
+export function ticketRepeatBadge(
+  occurrences: number,
+  ticket?: string,
+  position?: number
+): { text: string; title: string } {
+  const text = `Raised ${occurrences} times`;
+  const onTicket = ticket ? ` on ticket ${ticket}` : ' on this ticket';
+  const where =
+    position && position >= 1
+      ? ` This row is the ${ordinal(position)} of them.`
+      : '';
+  return {
+    text,
+    title: `This store has gone down ${occurrences} times${onTicket}.${where}`,
   };
 }

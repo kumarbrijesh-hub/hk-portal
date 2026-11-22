@@ -119,7 +119,7 @@ export const StoreInstancesView: React.FC<StoreInstancesViewProps> = ({ disrupti
             <span className="text-[11px] text-slate-500">{windowLabel}</span>
           </div>
           <div className="bg-white rounded-xl border-x border-b border-slate-200 border-t-4 border-t-slate-400 p-3.5 text-center">
-            <span className="text-xs font-bold text-slate-500 tracking-wider uppercase block">Disruption Rows</span>
+            <span className="text-xs font-bold text-slate-500 tracking-wider uppercase block">Number of Disruptions</span>
             <div className="text-4xl font-black text-slate-700 my-1 font-mono">{report.totalRecords}</div>
             <span className="text-[11px] text-slate-500">
               {Math.max(0, report.totalRecords - report.totalInstances)} are repeats on a ticket
@@ -199,11 +199,16 @@ export const StoreInstancesView: React.FC<StoreInstancesViewProps> = ({ disrupti
                 <th className="px-4 py-3 text-left font-bold">City</th>
                 <th className="px-4 py-3 text-left font-bold">Vendor</th>
                 <th className="px-4 py-3 text-right font-bold">Instances</th>
-                <th className="px-4 py-3 text-right font-bold">Rows</th>
+                <th className="px-4 py-3 text-right font-bold">Number of Disruptions</th>
                 <th className="px-4 py-3 text-right font-bold">Unique Tickets</th>
                 <th className="px-4 py-3 text-right font-bold">Repeats</th>
                 <th className="px-4 py-3 text-right font-bold">No Ticket</th>
-                <th className="px-4 py-3 text-right font-bold">Total Hrs</th>
+                <th
+                  className="px-4 py-3 text-right font-bold"
+                  title="Every disruption's own run added up, still-open ones included. The Performance Summary reports the same figure as Total Hours · All Records."
+                >
+                  Total Hrs
+                </th>
                 <th className="px-4 py-3 text-left font-bold">Last Disruption</th>
               </tr>
             </thead>
