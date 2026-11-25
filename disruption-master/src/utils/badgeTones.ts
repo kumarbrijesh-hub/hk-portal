@@ -21,6 +21,8 @@ export type BadgeTone =
   | 'inProgress'
   | 'watch'
   | 'inAudit'
+  | 'notOurs'
+  | 'breakdown'
   | 'done'
   | 'parked';
 
@@ -36,7 +38,7 @@ const TONES: Record<BadgeTone, ToneStyle> = {
   neutral: { chip: 'bg-slate-100 text-slate-700 border-slate-300', dot: 'bg-slate-400' },
 
   /** The store is down. The loudest thing on the report. */
-  critical: { chip: 'bg-red-50 text-red-700 border-red-200', dot: 'bg-red-500' },
+  critical: { chip: 'bg-red-100 text-red-800 border-red-300', dot: 'bg-red-600' },
 
   /** Needs somebody now, but is not the breakdown itself. */
   alert: { chip: 'bg-rose-50 text-rose-700 border-rose-300', dot: 'bg-rose-500' },
@@ -50,8 +52,32 @@ const TONES: Record<BadgeTone, ToneStyle> = {
   /** Waiting on somebody else's call - an issue nobody on this team owns. */
   watch: { chip: 'bg-yellow-50 text-yellow-800 border-yellow-200', dot: 'bg-yellow-500' },
 
-  /** Being checked. Green by request: an audit in process is somebody working. */
-  inAudit: { chip: 'bg-emerald-50 text-emerald-700 border-emerald-300', dot: 'bg-emerald-500' },
+  /**
+   * Being checked. Blue by request.
+   *
+   * Sky rather than the blue `inProgress` already uses: both read as blue, and
+   * the pair sits in different columns on the report, but the lighter hue keeps
+   * "being audited" from looking like "a technician is on the way" at a glance.
+   */
+  inAudit: { chip: 'bg-sky-50 text-sky-700 border-sky-300', dot: 'bg-sky-500' },
+
+  /**
+   * Green by request: an issue that is not this team's to fix.
+   *
+   * Outlined green against `done`'s filled green - the same two-greens trick the
+   * note below describes, read the other way round: nothing is closed here, it
+   * is simply not ours.
+   */
+  notOurs: { chip: 'bg-emerald-50 text-emerald-700 border-emerald-300', dot: 'bg-emerald-500' },
+
+  /**
+   * A Breakdown bucket. Light red by request.
+   *
+   * Deliberately a shade under `critical`, which the Disruption status wears:
+   * the bucket says what kind of thing this is, the status says the store is
+   * down right now, and the louder red belongs to the second.
+   */
+  breakdown: { chip: 'bg-red-50 text-red-600 border-red-200', dot: 'bg-red-400' },
 
   /**
    * Finished.
@@ -83,7 +109,7 @@ export function toneStyle(tone: BadgeTone): ToneStyle {
  */
 export function statusTone(status: string): BadgeTone {
   switch (status) {
-    // Green: an audit in process is somebody actively checking the store.
+    // Blue: an audit in process is somebody actively checking the store.
     case 'Audit in Process':
       return 'inAudit';
 
@@ -94,9 +120,9 @@ export function statusTone(status: string): BadgeTone {
     case 'OEM Visited':
       return 'inProgress';
 
-    // Yellow: an admin-side issue, parked on somebody outside this team.
-    case 'Known Admin Issue':
-      return 'watch';
+    // Green: not this team's issue to fix, and not a fault in the store.
+    case 'Non-Admin Issue':
+      return 'notOurs';
 
     case 'Disruption':
       return 'critical';
@@ -131,7 +157,7 @@ export function statusTone(status: string): BadgeTone {
 export function bucketTone(bucket: string): BadgeTone {
   switch (bucket) {
     case 'Breakdown':
-      return 'critical';
+      return 'breakdown';
     case 'Non Breakdown':
       return 'caution';
     case 'False Alarm / Invalid':

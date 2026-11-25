@@ -172,6 +172,10 @@ html.dark .bg-emerald-100 { background-color: #153426; }
 html.dark .bg-emerald-200 { background-color: #1b4330; }
 html.dark .border-rose-200 { border-color: #5c2a3b; }
 html.dark .border-red-200 { border-color: #5c2a2e; }
+/* The lighter Breakdown chip and the blue Audit chip added two hairlines the
+   dark sheet had no step for; without these both fall back to the light value
+   and ring the chip in a colour meant for a white card. */
+html.dark .border-red-300 { border-color: #6b3034; }
 html.dark .border-amber-100 { border-color: #463819; }
 html.dark .border-amber-200 { border-color: #574522; }
 html.dark .border-emerald-200 { border-color: #1f5139; }
@@ -184,6 +188,7 @@ html.dark .border-yellow-200 { border-color: #574e22; }
 html.dark .border-rose-300 { border-color: #6b3144; }
 html.dark .border-blue-200 { border-color: #24375c; }
 html.dark .border-sky-200 { border-color: #1f3a52; }
+html.dark .border-sky-300 { border-color: #255070; }
 html.dark .border-indigo-200 { border-color: #2f3463; }
 html.dark .border-purple-200 { border-color: #402c5e; }
 html.dark .divide-rose-200 > :not(:last-child) { border-color: #5c2a3b; }

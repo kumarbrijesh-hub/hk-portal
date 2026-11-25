@@ -13,46 +13,110 @@ export const DEFAULT_CC_POCS: string[] = [
   'Harsh',
 ];
 
+/**
+ * The Issue / Sub-Issue taxonomy, as the team actually uses it.
+ *
+ * Fixed in the app on purpose. This list used to be admin-editable and shipped
+ * with placeholder examples, which meant a console that had already stored a
+ * config kept the placeholders for ever - the defaults only ever applied to a
+ * first run. It is now the single source of truth: the server serves this list
+ * whatever is stored, and ignores an issueMaster sent to /api/config.
+ *
+ * Spelling and capitalisation are normalised here rather than carried over as
+ * typed, so the dropdown reads consistently: Title Case throughout, one spelling
+ * of "Power Cut", and no stray trailing punctuation.
+ */
 export const DEFAULT_ISSUE_MASTER: Record<string, string[]> = {
-  'Refrigeration & Chiller': [
-    'Chiller Temperature Exceeded',
-    'Deep Freezer Gas Leak',
-    'Compressor Tripping',
-    'Condenser Fan Motor Burnt',
-    'Thermostat Sensor Failure',
+  'Airflow & Fans': ['Broken Fan Blade', 'Fan Capacitor Fault', 'IDU Fan Motor', 'ODU Fan Motor'],
+  'Asset Movement': ['New Installation', 'ODU Relocation', 'Structural Changes'],
+  'Compressor Failure': [
+    'Mechanical Jam',
+    'Motor Burnout',
+    'Oil Return Failure',
+    'Terminal Burst',
+    'Thermal Trip',
   ],
-  'Power & Electrical': [
-    'Grid Power Outage',
-    'DG Set Auto-Start Failure',
-    'Phase Imbalance / Low Voltage',
-    'UPS Backup Depleted',
-    'Main MCCB Tripped',
+  'Controls & Sensors': [
+    'Coil Sensor Fault',
+    'Controller Dead',
+    'Display Error',
+    'High Pressure Trip',
+    'Hooter Fault',
+    'Low Pressure Trip',
+    'Room Sensor Fault',
+    'TXV Failure',
   ],
-  'Network & Connectivity': [
-    'Primary ISP Fiber Cut',
-    'Backup 4G Gateway Down',
-    'Switch Port Failure',
-    'Wi-Fi AP Offline',
-    'Firewall Routing Issue',
+  'Defrost System': [
+    'Coil Heater Failure',
+    'Coil Ice Blockage',
+    'Defrost Relay Fault',
+    'Drain Heater Failure',
+    'Tray Heater Failure',
   ],
-  'Hardware & Peripherals': [
-    'Barcode Scanner Hardware Fault',
-    'Thermal Receipt Printer Failure',
-    'Weighing Machine Error',
-    'Billing Console Freeze',
+  'Doors & Structure': [
+    'Air Curtain Issue',
+    'Door Closure',
+    'Door Misaligned',
+    'Gasket Torn',
+    'Handle Damaged',
+    'Hinge Broken',
+    'Light Bulb Dead',
+    'Light Driver Dead',
+    'PUF Damage',
+    'Strip Curtain Missing',
   ],
-  'Civil & Storage': [
-    'Water Ingress / Leakage',
-    'Rolling Shutter Stuck',
-    'Cold Room Door Seal Damage',
-    'Staging Area Blockage',
+  'Drainage System': [
+    'Copper Pipe',
+    'Drain Pump Failure',
+    'P-Trap Choke',
+    'Pipe Blockage',
+    'Pipe Breakage',
+    'Tray Overflow',
   ],
-  'Vendor & Operations': [
-    'Technician Delayed Arrival',
-    'Spare Parts Unavailability',
-    'Scheduled Maintenance Extension',
-    'Preventive Health Check Stoppage',
+  Electrical: [
+    'Burnt Wiring',
+    'Buss Bar Melted',
+    'Contactor Fault',
+    'Fuel Shortage',
+    'Fuse Blown',
+    'MCB Trip',
+    'Relay Fault',
+    'Short Circuit',
+    'SPPR',
   ],
+  'External Factors': [
+    'Internet Down',
+    'Landlord Dispute',
+    'Power Cut',
+    'Power Cut (Payment Issue)',
+    'Power Cut in the Area',
+    'Store Relocation',
+    'Store Sealed',
+    'Tube-Light Issue (Blackout in Frozen)',
+    'Water Logging',
+  ],
+  'Logging Error': ['Duplicate Ticket', 'Invalid Disruption'],
+  'Non Cold Room': ['Door Heater', 'Door Work', 'Floor Work', 'RMS Issue'],
+  'Normal Behavior': ['Auto-Defrost', 'Pulldown Delay'],
+  'Old Partner Store': ['Old Partner Store'],
+  'Planned Operations': ['Deep Cleaning', 'Routine PPM', 'Stock Audit', 'Structural Changes'],
+  'Power Infrastructure': [
+    'ATS Panel Fault',
+    'DG Failure',
+    'Phase Reversal',
+    'Servo Card Fault',
+    'Servo Motor Fault',
+    'Single Phasing',
+    'Voltage Fluctuation',
+  ],
+  'Refrigerant Leakage': [
+    'Condenser Choke',
+    'Filter Drier Choke',
+    'Gas Leak (Coil - Indoor)',
+    'Gas Leak (Coil - Outdoor)',
+    'Gas Leak (Piping)',
+  ],
+  'User Error': ['Door Kept Open', 'Manually Turned Off'],
 };
 
 export const DEFAULT_COLUMN_MAPPING = {

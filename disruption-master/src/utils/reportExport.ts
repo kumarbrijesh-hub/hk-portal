@@ -4,7 +4,7 @@ import { Disruption } from '../types';
 import { getCurrentISTDate, getReportFileTimestamp } from './dateUtils';
 import { readIssues, readSubIssues } from './issueTaxonomy';
 import { disruptionDurationHours, liveUpdateReportBlock } from './liveUpdateLog';
-import { StoreInstanceReport, ticketRollupIndex } from './ticketInstances';
+import { StoreInstanceReport, reportedDurationHours, ticketRollupIndex } from './ticketInstances';
 import { withExportAppearance } from './theme';
 
 /**
@@ -16,27 +16,48 @@ import { withExportAppearance } from './theme';
 const REPORT_BRAND = 'Blinkit DMS - Disruption Management System';
 
 /**
- * Worst store first.
+ * Longest down first.
  *
- * A report is read from the top, so the outlet breaking most often has to be
- * the first thing on it. Rows are grouped by outlet and the groups ordered by
- * how many disruptions that outlet has in this report, heaviest first; within
- * an outlet the newest disruption leads. Ties fall back to the outlet ID so
- * two runs over the same data always produce the same file.
+ * A report is read from the top, so the longest outage has to be the first
+ * thing on it. This used to rank by how MANY disruptions an outlet had, which
+ * is a different question and put a store with four twenty-minute blips above
+ * one that had been dark for nine hours.
+ *
+ * Rows stay grouped by outlet, because a store split across the page is hard to
+ * read; the groups are ordered by that outlet's longest outage in this report,
+ * and within an outlet the rows descend by their own duration. Ties fall back
+ * to the outlet ID and then the newest start, so two runs over the same data
+ * always produce the same file.
+ *
+ * The sort key is `reportedDurationHours` - the same figure the Dur column
+ * prints, per-ticket roll-up included. Ranking on anything else would put a row
+ * showing 6.0 hours underneath one showing 3.0, which reads as a bug whatever
+ * the arithmetic behind it.
  */
-export function orderByDisruptionVolume(disruptions: Disruption[]): Disruption[] {
-  const countByOutlet = new Map<string, number>();
+export function orderByDowntime(
+  disruptions: Disruption[],
+  rollups?: ReturnType<typeof ticketRollupIndex>
+): Disruption[] {
+  const index = rollups ?? ticketRollupIndex(disruptions);
+  const hoursOf = (d: Disruption): number => reportedDurationHours(d, index) ?? 0;
+
+  // The group key is the outlet's WORST row, not the sum of its rows: several
+  // rows can share one ticket and so one rolled-up duration, and adding those
+  // together would count the same outage once per row.
+  const worstByOutlet = new Map<string, number>();
   for (const d of disruptions) {
     const outlet = (d.outletId || '').trim().toUpperCase();
-    countByOutlet.set(outlet, (countByOutlet.get(outlet) || 0) + 1);
+    worstByOutlet.set(outlet, Math.max(worstByOutlet.get(outlet) ?? 0, hoursOf(d)));
   }
 
   return [...disruptions].sort((a, b) => {
     const outletA = (a.outletId || '').trim().toUpperCase();
     const outletB = (b.outletId || '').trim().toUpperCase();
-    const volume = (countByOutlet.get(outletB) || 0) - (countByOutlet.get(outletA) || 0);
-    if (volume !== 0) return volume;
+    const byStore = (worstByOutlet.get(outletB) ?? 0) - (worstByOutlet.get(outletA) ?? 0);
+    if (byStore !== 0) return byStore;
     if (outletA !== outletB) return outletA.localeCompare(outletB);
+    const byRow = hoursOf(b) - hoursOf(a);
+    if (byRow !== 0) return byRow;
     return (b.disruptionStartDateTime || '').localeCompare(a.disruptionStartDateTime || '');
   });
 }
@@ -191,8 +212,8 @@ export function exportActiveReportToCSV(
    */
   allDisruptions: Disruption[] = unorderedDisruptions
 ) {
-  const disruptions = orderByDisruptionVolume(unorderedDisruptions);
   const rollups = ticketRollupIndex(allDisruptions);
+  const disruptions = orderByDowntime(unorderedDisruptions, rollups);
   const { formattedIST } = getCurrentISTDate();
   const timestampHeader = `Report Generated: ${formattedIST} IST`;
   const filterHeader = activeFiltersDescription ? `Filters Applied: ${activeFiltersDescription}` : 'All Active Records';
@@ -279,8 +300,8 @@ export function exportActiveReportToExcel(
   activeFiltersDescription?: string,
   allDisruptions: Disruption[] = unorderedDisruptions
 ) {
-  const disruptions = orderByDisruptionVolume(unorderedDisruptions);
   const rollups = ticketRollupIndex(allDisruptions);
+  const disruptions = orderByDowntime(unorderedDisruptions, rollups);
   const { formattedIST } = getCurrentISTDate();
 
   const metadataRows = [

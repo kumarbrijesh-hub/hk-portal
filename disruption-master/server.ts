@@ -250,6 +250,9 @@ function isAllowedEmail(email: string): boolean {
   return ALLOWED_EMAIL_DOMAINS.includes(email.slice(at + 1).toLowerCase());
 }
 
+/** The status these records used to carry before it was given the right name. */
+const LEGACY_ADMIN_ISSUE_STATUS = 'Known Admin Issue';
+
 function roleFor(email: string): UserRole {
   return OWNER_EMAILS.includes(email.toLowerCase()) ? 'owner' : 'member';
 }
@@ -385,11 +388,25 @@ function migrateConfig(stored: Partial<AppConfig>): AppConfig {
   merged.googleSheetUrl = merged.sources.outletMaster.url;
   merged.sheetTabName = merged.sources.outletMaster.tabName;
 
+  /*
+   * The Issue / Sub-Issue taxonomy is fixed in the app, so the built-in list
+   * wins over anything stored. Without this the defaults would only ever reach
+   * a first run: a console that had already written a config kept the old
+   * placeholder examples for ever, which is exactly what happened here.
+   *
+   * The old statuses are also renamed in the stored list, for the same reason
+   * the records themselves are.
+   */
+  merged.issueMaster = DEFAULT_ISSUE_MASTER;
+
   // The status list is admin-editable, so normalise whatever was stored: drop
   // blanks and duplicates, and re-add any protected status that went missing,
   // since the audit reminder and the active/closed split match on those exact
   // words and would otherwise go quiet.
-  const statusList = (merged.statusOptions ?? []).map((v) => String(v).trim()).filter(Boolean);
+  const statusList = (merged.statusOptions ?? [])
+    .map((v) => String(v).trim())
+    .filter(Boolean)
+    .map((v) => (v === LEGACY_ADMIN_ISSUE_STATUS ? 'Non-Admin Issue' : v));
   const deduped = Array.from(new Set(statusList.length > 0 ? statusList : CURRENT_STATUS_OPTIONS));
   for (const required of PROTECTED_STATUSES) {
     if (!deduped.includes(required)) deduped.push(required);
@@ -507,6 +524,18 @@ const DB_BACKUP_FILE = `${DB_FILE}.bak`;
 function backfillDerivedTimings(): number {
   let touched = 0;
   for (const record of db.disruptions) {
+    /*
+     * "Known Admin Issue" was the wrong words for this state and is now
+     * "Non-Admin Issue" - an issue that is not this team's to fix. Records
+     * written before the rename still carry the old string, and every
+     * active/closed split, tone lookup and report filter matches on the exact
+     * words, so they are renamed in place on boot rather than left to read as
+     * an unknown status for ever.
+     */
+    if ((record.currentStatus as string) === LEGACY_ADMIN_ISSUE_STATUS) {
+      record.currentStatus = 'Non-Admin Issue';
+      touched++;
+    }
     const party = RESOLVED_BY_FOR_STATUS[record.currentStatus];
     if (party) {
       if (!record.resolvedBy) record.resolvedBy = party;

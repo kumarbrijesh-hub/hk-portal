@@ -22,7 +22,7 @@ import {
   BellRing,
   Repeat,
 } from 'lucide-react';
-import { AUDIT_HOLD_LIMIT_HOURS, Disruption, isAutoDisabled, isDisruptionActive, isOnActiveBoard } from '../types';
+import { AUDIT_HOLD_LIMIT_HOURS, Disruption, isDisruptionActive, isOnActiveBoard } from '../types';
 import { StatusBadge, BucketBadge } from './StatusBadge';
 import { LiveUpdateLog } from './LiveUpdateLog';
 import { BrandMark } from './BrandMark';
@@ -37,7 +37,7 @@ import {
   exportActiveReportToCSV,
   exportActiveReportToExcel,
   exportActiveReportToPNG,
-  orderByDisruptionVolume,
+  orderByDowntime,
 } from '../utils/reportExport';
 import { getCurrentISTDate, formatReportGeneratedTimestamp, calculateDurationHours } from '../utils/dateUtils';
 import { readIssues, readSubIssues } from '../utils/issueTaxonomy';
@@ -116,12 +116,6 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
   const allActiveDisruptions = useMemo(() => {
     return allDisruptions.filter((d) => isOnActiveBoard(d.currentStatus));
   }, [allDisruptions]);
-
-  /** How many are sitting on the Auto Disabled page, for the pointer to it. */
-  const parkedCount = useMemo(
-    () => allDisruptions.filter((d) => isAutoDisabled(d.currentStatus)).length,
-    [allDisruptions]
-  );
 
   /**
    * Per-ticket totals, built over every record rather than the filtered view.
@@ -221,7 +215,7 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
       text.includes('admin issue') ||
       text.includes('known admin') ||
       d.currentStatus === 'Audit in Process' ||
-      d.currentStatus === 'Known Admin Issue' ||
+      d.currentStatus === 'Non-Admin Issue' ||
       d.bucket === 'False Alarm / Invalid'
     );
   };
@@ -231,29 +225,42 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
   // newest disruption comes first.
   //
   // This is the ordering that kept going missing from the downloaded report.
-  // orderByDisruptionVolume was only ever called inside the export functions
-  // and the Master Log, and the PNG is a capture of THIS markup rather than of
-  // the export path - so the image came out in whatever order the records
-  // happened to arrive in. Ordering the rows here, where they are rendered, is
-  // what makes the screen and every downloaded form of the report agree, and is
-  // why it cannot quietly drift apart again.
+  // The ordering lives in the export helper and is applied here too, because
+  // the PNG is a capture of THIS markup rather than of the export path - order
+  // the rows only in the exporters and the image comes out in whatever order
+  // the records happened to arrive in. Doing it here, where they are rendered,
+  // is what makes the screen and every downloaded form of the report agree.
   //
   // Ordered once over the whole filtered set and only then split into the two
-  // tables, not ordered per table: the counts that decide the ranking have to
-  // be an outlet's real total, and this is also the set the CSV is built from,
-  // so the two files list the same stores in the same order.
+  // tables, not ordered per table: the ranking has to be read off an outlet's
+  // real worst outage, and this is also the set the CSV is built from, so the
+  // two files list the same stores in the same order.
+  //
+  // The rollups are passed in rather than rebuilt so the sort key is the exact
+  // number the Dur column prints.
   const orderedActiveDisruptions = useMemo(
-    () => orderByDisruptionVolume(filteredActiveDisruptions),
-    [filteredActiveDisruptions]
+    () => orderByDowntime(filteredActiveDisruptions, ticketRollups),
+    [filteredActiveDisruptions, ticketRollups]
   );
 
-  const standardActiveDisruptions = useMemo(() => {
-    return orderedActiveDisruptions.filter((d) => !isAuditOrNonAdmin(d));
-  }, [orderedActiveDisruptions]);
+  /*
+   * Each table is ranked on its own rows, not on a slice of one ranking taken
+   * over both. A store's place is decided by its worst outage, and ordering the
+   * combined set first meant a store whose worst row sits in the OTHER table
+   * kept that row's rank here - so the main table could show an eleven-hour
+   * store above a one-hundred-and-seventy-hour one, which is exactly the
+   * complaint ranking by duration was meant to answer. Ranking per table keeps
+   * the order true to the numbers a reader can actually see in front of them.
+   */
+  const standardActiveDisruptions = useMemo(
+    () => orderByDowntime(orderedActiveDisruptions.filter((d) => !isAuditOrNonAdmin(d)), ticketRollups),
+    [orderedActiveDisruptions, ticketRollups]
+  );
 
-  const auditActiveDisruptions = useMemo(() => {
-    return orderedActiveDisruptions.filter((d) => isAuditOrNonAdmin(d));
-  }, [orderedActiveDisruptions]);
+  const auditActiveDisruptions = useMemo(
+    () => orderByDowntime(orderedActiveDisruptions.filter((d) => isAuditOrNonAdmin(d)), ticketRollups),
+    [orderedActiveDisruptions, ticketRollups]
+  );
 
   // Audit holds past their window. Taken from every active record rather than
   // the filtered set, so a filter cannot hide one that needs clearing.
@@ -781,15 +788,6 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                 <Clock className="w-3.5 h-3.5 text-blue-600" />
                 Generated: {formatReportGeneratedTimestamp()}
               </span>
-              {parkedCount > 0 && (
-                <span
-                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-slate-100 text-slate-600 border border-slate-200 text-xs font-semibold"
-                  title="Auto-disabled records are open but parked, and are counted on the Auto Disabled page instead"
-                >
-                  <Repeat className="w-3.5 h-3.5 text-slate-500" />
-                  {parkedCount} auto disabled (not counted here)
-                </span>
-              )}
             </div>
           </div>
 

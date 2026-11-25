@@ -17,7 +17,7 @@ export type CurrentStatus =
   | 'Resolved by Dealer'
   | 'Resolved by CC'
   | 'Auto Disable'
-  | 'Known Admin Issue'
+  | 'Non-Admin Issue'
   | 'Disable'
   | 'Disruption'
   | 'Audit in Process';
@@ -33,7 +33,7 @@ export const CURRENT_STATUS_OPTIONS: CurrentStatus[] = [
   'Resolved by Dealer',
   'Resolved by CC',
   'Auto Disable',
-  'Known Admin Issue',
+  'Non-Admin Issue',
   'Disable',
   'Disruption',
   'Audit in Process',

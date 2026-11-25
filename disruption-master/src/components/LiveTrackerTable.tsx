@@ -21,7 +21,7 @@ import {
 import { Disruption } from '../types';
 import { LiveUpdateLog } from './LiveUpdateLog';
 import { cumulativeLiveUpdate } from '../utils/liveUpdateLog';
-import { orderByDisruptionVolume } from '../utils/reportExport';
+import { orderByDowntime } from '../utils/reportExport';
 import { StatusBadge, BucketBadge } from './StatusBadge';
 import { readIssues, readSubIssues } from '../utils/issueTaxonomy';
 import { hoursBetween } from '../utils/dateUtils';
@@ -199,7 +199,7 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
     ];
 
     // Worst store first, the same order the Active report uses.
-    const rows = orderByDisruptionVolume(filteredDisruptions).map((d) => {
+    const rows = orderByDowntime(filteredDisruptions).map((d) => {
       const isMissing = !d.ticketId || d.ticketId.trim() === '' ? 'Yes' : 'No';
       return [
         d.ticketMissing || isMissing,
@@ -409,7 +409,7 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
             <option value="OEM Aligned">OEM Aligned</option>
             <option value="OEM Visited">OEM Visited</option>
             <option value="Auto Disable">Auto Disable</option>
-            <option value="Known Admin Issue">Known Admin Issue</option>
+            <option value="Non-Admin Issue">Non-Admin Issue</option>
             <option value="Disruption">Disruption</option>
             <option value="Audit in Process">Audit in Process</option>
             <option value="Resolved by RAC">Resolved by RAC</option>
