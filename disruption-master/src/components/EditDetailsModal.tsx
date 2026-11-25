@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { X, Save, AlertCircle, Tag, Ticket, ShieldCheck, Timer } from 'lucide-react';
+import { X, Save, AlertCircle, Tag, Ticket, ShieldCheck, Timer, CalendarClock } from 'lucide-react';
+import { generateDisruptionId } from '../utils/idGenerator';
+import { alignDisruptionId } from '../services/api';
 import {
   BUCKET_OPTIONS,
   BucketType,
@@ -42,9 +44,17 @@ interface EditDetailsModalProps {
  * left to the audit trail. The server enforces the same rule, so it holds for a
  * hand-written API call too.
  *
- * The start time and outlet stay fixed: the Disruption ID is generated from
- * them, so changing either would leave the ID naming a disruption that no
- * longer matches it.
+ * The owner can also correct the start time, which members cannot. It is not an
+ * ordinary field: the Disruption ID is generated from the outlet and the start
+ * minute, so the start cannot move on its own without leaving the ID naming a
+ * disruption that no longer matches it. The save therefore asks the existing
+ * align-id endpoint, which moves both halves together and recomputes duration
+ * and TAT - the same repair the Sheet ID Match page drives, now reachable for a
+ * record no sheet feed ever complained about.
+ *
+ * The outlet stays fixed for everyone. A disruption belongs to the store it
+ * happened at, so a wrong outlet is a different record rather than a renamed
+ * one, and the alignment rules refuse to move an ID between outlets.
  */
 export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
   disruption,
@@ -67,6 +77,10 @@ export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
   const [mstFrt, setMstFrt] = useState(
     disruption.mstFrtMins === undefined ? '' : String(disruption.mstFrtMins)
   );
+  // The ID only encodes the minute, so seconds are dropped here rather than
+  // offered as a field that cannot affect anything.
+  const [startDate, setStartDate] = useState(disruption.disruptionStartDate ?? '');
+  const [startTime, setStartTime] = useState((disruption.disruptionStartTime ?? '').slice(0, 5));
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -91,17 +105,35 @@ export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
   const ccFrtChanged = isOwner && ccFrtEntry.ok && ccFrtEntry.value !== disruption.ccFrtMins;
   const mstFrtChanged = isOwner && mstFrtEntry.ok && mstFrtEntry.value !== disruption.mstFrtMins;
 
-  const changed =
+  /*
+   * Moving the start is not an ordinary field edit: the Disruption ID is
+   * derived from the outlet and the start minute, and two sheets key off it. So
+   * the start and the ID have to move together or the record ends up with an ID
+   * that says 08:00 and a start field that says 08:20, while duration, TAT and
+   * every report read the start field. The align-id endpoint already does
+   * exactly that move - and is already owner-only - so this asks it rather than
+   * opening a second path to the same thing.
+   *
+   * Until now it could only be reached from the Sheet ID Match page, which lists
+   * the records a sheet feed failed to place. A start that was simply typed
+   * wrong, on a record no sheet complained about, had nowhere to be fixed.
+   */
+  const targetId = isOwner ? generateDisruptionId(disruption.outletId, startDate, startTime) : '';
+  const startMoves = Boolean(isOwner && startDate && startTime && targetId && targetId !== disruption.disruptionId);
+
+  const otherChanged =
     bucket !== disruption.bucket ||
     trimmedTicket !== (disruption.ticketId ?? '').trim() ||
     (showOemCoverage && oemCoverage !== (disruption.oemCoverage ?? '')) ||
     ccFrtChanged ||
     mstFrtChanged;
+
+  const changed = otherChanged || startMoves;
   /** Names only what this modal is actually offering to the person reading it. */
   const heading = (() => {
     const fields = ['Bucket', 'Ticket ID'];
     if (showOemCoverage) fields.push('OEM Coverage');
-    if (isOwner) fields.push('Response Times');
+    if (isOwner) fields.push('Response Times', 'Start Time');
     const last = fields.pop() as string;
     return `Edit ${fields.join(', ')} & ${last}`;
   })();
@@ -135,31 +167,47 @@ export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
 
     setIsSaving(true);
     try {
-      const res = await fetch(`/api/disruptions/${encodeURIComponent(disruption.disruptionId)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bucket,
-          // Sent as an empty string rather than omitted, so clearing a ticket
-          // that was entered by mistake actually clears it.
-          ticketId: trimmedTicket,
-          ...(showOemCoverage ? { oemCoverage } : {}),
-          // null, not undefined: JSON.stringify drops undefined, and the server
-          // reads a missing key as "leave it alone". null is how a figure is
-          // actually cleared.
-          ...(ccFrtChanged ? { ccFrtMins: ccFrtEntry.value ?? null } : {}),
-          ...(mstFrtChanged ? { mstFrtMins: mstFrtEntry.value ?? null } : {}),
-          updatedBy: currentUser || disruption.ccPoc || 'Operator',
-        }),
-      });
+      let saved: Disruption = disruption;
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'Could not save the change.');
+      // The ordinary fields first, against the ID the record still has. Skipped
+      // when only the start moved, so a start-only correction does not post an
+      // edit that changes nothing.
+      if (otherChanged) {
+        const res = await fetch(`/api/disruptions/${encodeURIComponent(disruption.disruptionId)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            bucket,
+            // Sent as an empty string rather than omitted, so clearing a ticket
+            // that was entered by mistake actually clears it.
+            ticketId: trimmedTicket,
+            ...(showOemCoverage ? { oemCoverage } : {}),
+            // null, not undefined: JSON.stringify drops undefined, and the server
+            // reads a missing key as "leave it alone". null is how a figure is
+            // actually cleared.
+            ...(ccFrtChanged ? { ccFrtMins: ccFrtEntry.value ?? null } : {}),
+            ...(mstFrtChanged ? { mstFrtMins: mstFrtEntry.value ?? null } : {}),
+            updatedBy: currentUser || disruption.ccPoc || 'Operator',
+          }),
+        });
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Could not save the change.');
+        }
+
+        saved = (await res.json()).disruption as Disruption;
       }
 
-      const data = await res.json();
-      onSuccess(data.disruption as Disruption);
+      // Then the start, which takes the ID with it. Last, because it renames the
+      // record - the edit above has to go to the name the record still answers
+      // to. Duration and TAT are recomputed server-side off the new start.
+      if (startMoves) {
+        const aligned = await alignDisruptionId(disruption.disruptionId, targetId, 'align');
+        saved = aligned.disruption;
+      }
+
+      onSuccess(saved);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Could not save the change.');
     } finally {
@@ -366,8 +414,68 @@ export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
             </div>
           )}
 
+          {/* Owner only, and separate from the block above: this one renames the
+              record, because the ID is derived from the start minute. */}
+          {isOwner && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+              <div className="mb-2 flex items-center gap-1.5">
+                <CalendarClock className="h-3.5 w-3.5 text-amber-700" />
+                <p className="text-xs font-semibold text-amber-900">Correct the start time</p>
+                <span className="ml-auto rounded bg-amber-200/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-900">
+                  Admin only
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="edit-start-date" className="mb-1 block text-[10px] font-semibold text-slate-700">
+                    Start date
+                  </label>
+                  <input
+                    id="edit-start-date"
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 font-mono text-xs focus:border-amber-500 focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="edit-start-time" className="mb-1 block text-[10px] font-semibold text-slate-700">
+                    Start time
+                  </label>
+                  <input
+                    id="edit-start-time"
+                    type="time"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 font-mono text-xs focus:border-amber-500 focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+              </div>
+              {startMoves ? (
+                <div className="mt-2 space-y-1 text-[10px] leading-relaxed">
+                  <p className="text-amber-900">
+                    The Disruption ID moves with it:{' '}
+                    <span className="font-mono font-semibold">{disruption.disruptionId}</span> →{' '}
+                    <span className="font-mono font-semibold">{targetId}</span>
+                  </p>
+                  <p className="text-amber-900/80">
+                    Duration and TAT are measured from the start, so both are recalculated. CC FRT is left as
+                    it stands — correct it above if it needs it.
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-2 text-[10px] leading-relaxed text-amber-900/80">
+                  The Disruption ID is built from the outlet and this minute, and two sheets key off it, so
+                  changing the start renames the record. The old ID and start are kept in the audit trail.
+                </p>
+              )}
+            </div>
+          )}
+
           <p className="rounded-lg bg-slate-50 p-2.5 text-[10px] leading-relaxed text-slate-500">
-            Outlet and disruption start time cannot be changed here — the Disruption ID is generated from them.
+            {isOwner
+              ? 'The outlet cannot be changed here — a disruption belongs to the store it happened at, so the wrong outlet is a different record, not a renamed one. '
+              : 'Outlet and disruption start time cannot be changed here — the Disruption ID is generated from them. '}
             This change is recorded against your name in the audit trail.
           </p>
 
