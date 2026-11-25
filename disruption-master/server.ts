@@ -2532,6 +2532,56 @@ async function startServer() {
       return Number.isFinite(n) && n >= 0 ? n : current;
     };
 
+    /*
+     * CC FRT and RAC FRT are derived figures, not typed ones, so changing either
+     * is an override of what the app worked out for itself. That is the owner's
+     * call alone: these two numbers feed the FRT averages the whole console is
+     * judged on, and a member editing their own response time is the one
+     * correction nobody can audit their way out of.
+     *
+     * The permission was backwards until now, in both directions at once. This
+     * endpoint spreads the request body over the record, so any signed-in
+     * account could already set these through a hand-written API call - while
+     * the edit form offered the field to nobody at all, the owner included. So
+     * it was open where it should be shut and shut where it should be open.
+     */
+    const nextCcFrt = normaliseFrt(updates.ccFrtMins, existing.ccFrtMins);
+    const nextMstFrt = normaliseFrt(updates.mstFrtMins, existing.mstFrtMins);
+    const ccFrtChanged = nextCcFrt !== existing.ccFrtMins;
+    const mstFrtChanged = nextMstFrt !== existing.mstFrtMins;
+    const frtChanged = ccFrtChanged || mstFrtChanged;
+    if (frtChanged && actor(res).role !== 'owner') {
+      return res.status(403).json({
+        error: 'Only the owner account can correct the CC FRT or RAC FRT figure.',
+      });
+    }
+
+    /*
+     * An override of a derived figure leaves no other trace - there is no
+     * timestamp to read it back off - so the old value is written into the
+     * audit trail or it is gone for good.
+     */
+    const describeFrt = (mins?: number): string => (mins === undefined ? 'not set' : `${mins} min`);
+    const frtHistory: DisruptionUpdateHistory[] = [];
+    if (frtChanged) {
+      const parts: string[] = [];
+      if (ccFrtChanged) {
+        parts.push(`CC FRT from ${describeFrt(existing.ccFrtMins)} to ${describeFrt(nextCcFrt)}`);
+      }
+      if (mstFrtChanged) {
+        parts.push(`RAC FRT from ${describeFrt(existing.mstFrtMins)} to ${describeFrt(nextMstFrt)}`);
+      }
+      frtHistory.push({
+        updateId: `UPD-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        disruptionId: existing.disruptionId,
+        updateText: `Owner corrected the response time: ${parts.join('; ')}.`,
+        updatedBy: actor(res).email,
+        updatedAt: formattedIST,
+        previousStatus: existing.currentStatus,
+        newStatus: existing.currentStatus,
+      });
+    }
+
     // This endpoint spreads the request body over the record, so the coverage is
     // validated rather than trusted - a free-text value would otherwise land in
     // the column straight from a hand-written API call.
@@ -2554,8 +2604,12 @@ async function startServer() {
       subIssue: effectiveSubIssues[0] ?? '',
       issue: effectiveIssues[0] ?? '',
       auditStartedAt: auditStampFor(previousStatus, targetStatus, existing.auditStartedAt, formattedIST),
-      ccFrtMins: normaliseFrt(updates.ccFrtMins, existing.ccFrtMins),
-      mstFrtMins: normaliseFrt(updates.mstFrtMins, existing.mstFrtMins),
+      ccFrtMins: nextCcFrt,
+      mstFrtMins: nextMstFrt,
+      // Set after the spreads, not before: the body is spread over the record
+      // wholesale, so a hand-written call carrying an updateHistory of its own
+      // would otherwise replace the real one.
+      updateHistory: [...(existing.updateHistory || []), ...frtHistory],
       updatedAt: formattedIST,
       lastUpdatedAt: formattedIST,
       lastUpdatedBy: updates.updatedBy || existing.lastUpdatedBy,

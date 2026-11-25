@@ -1210,7 +1210,7 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                                 onOpenEditDetails(d);
                               }}
                               className="px-2.5 py-1 rounded bg-white hover:bg-slate-100 text-slate-600 font-medium text-[11px] transition border border-slate-300 cursor-pointer"
-                              title="Edit Bucket / Ticket ID"
+                              title="Edit record details"
                             >
                               Edit
                             </button>
@@ -1402,7 +1402,7 @@ export const ActiveDisruptionsView: React.FC<ActiveDisruptionsViewProps> = ({
                                   onOpenEditDetails(d);
                                 }}
                                 className="px-2.5 py-1 rounded bg-white hover:bg-slate-100 text-slate-600 font-medium text-[11px] transition border border-slate-300 cursor-pointer"
-                                title="Edit Bucket / Ticket ID"
+                                title="Edit record details"
                               >
                                 Edit
                               </button>

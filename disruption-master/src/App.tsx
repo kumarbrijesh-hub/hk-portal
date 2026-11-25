@@ -697,6 +697,7 @@ export default function App() {
         <EditDetailsModal
           disruption={selectedDisruptionForEdit}
           currentUser={currentUser}
+          isOwner={isOwner}
           onClose={() => setSelectedDisruptionForEdit(null)}
           onSuccess={(updated) => {
             handleDisruptionUpdated(updated);

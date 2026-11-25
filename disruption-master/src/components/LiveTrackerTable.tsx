@@ -872,7 +872,7 @@ export const LiveTrackerTable: React.FC<LiveTrackerTableProps> = ({
                               onOpenEditDetails(d);
                             }}
                             className="inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-[11px] transition border border-slate-200 cursor-pointer"
-                            title="Edit Bucket / Ticket ID"
+                            title="Edit record details"
                           >
                             <Pencil className="w-3 h-3" />
                             <span>Edit</span>

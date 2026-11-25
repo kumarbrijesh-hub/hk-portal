@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Save, AlertCircle, Tag, Ticket, ShieldCheck } from 'lucide-react';
+import { X, Save, AlertCircle, Tag, Ticket, ShieldCheck, Timer } from 'lucide-react';
 import {
   BUCKET_OPTIONS,
   BucketType,
@@ -13,6 +13,8 @@ import { StatusBadge } from './StatusBadge';
 interface EditDetailsModalProps {
   disruption: Disruption;
   currentUser: string;
+  /** Gates the response-time fields. Everything else here is open to the team. */
+  isOwner: boolean;
   onClose: () => void;
   onSuccess: (updatedDisruption: Disruption) => void;
 }
@@ -33,6 +35,13 @@ interface EditDetailsModalProps {
  * better control for a correction than making the team queue behind one
  * account.
  *
+ * The response-time figures are the exception, and are shown to the owner only.
+ * CC FRT and RAC FRT are derived, not typed, so editing one overrides what the
+ * app worked out; they also feed the FRT averages the console is judged on, so
+ * a member correcting their own response time is the one edit that cannot be
+ * left to the audit trail. The server enforces the same rule, so it holds for a
+ * hand-written API call too.
+ *
  * The start time and outlet stay fixed: the Disruption ID is generated from
  * them, so changing either would leave the ID naming a disruption that no
  * longer matches it.
@@ -40,6 +49,7 @@ interface EditDetailsModalProps {
 export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
   disruption,
   currentUser,
+  isOwner,
   onClose,
   onSuccess,
 }) => {
@@ -49,15 +59,53 @@ export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
   // is mandatory once it applies, so a mis-click on the resolving update can be
   // put right, and a record resolved before this field existed can be filled in.
   const [oemCoverage, setOemCoverage] = useState<OemCoverage | ''>(disruption.oemCoverage ?? '');
+  // Held as text, not a number, so the box can be emptied to put the figure
+  // back to "not reported" rather than being forced to some stand-in value.
+  const [ccFrt, setCcFrt] = useState(
+    disruption.ccFrtMins === undefined ? '' : String(disruption.ccFrtMins)
+  );
+  const [mstFrt, setMstFrt] = useState(
+    disruption.mstFrtMins === undefined ? '' : String(disruption.mstFrtMins)
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const trimmedTicket = ticketId.trim();
   const showOemCoverage = requiresOemCoverage(disruption.currentStatus);
+
+  /**
+   * Empty clears the figure; anything else has to be a whole number of minutes.
+   * `ok: false` is kept apart from `value: undefined` on purpose - typing "abc"
+   * must not read as "clear it".
+   */
+  const parseFrt = (raw: string): { ok: boolean; value?: number } => {
+    const trimmed = raw.trim();
+    if (!trimmed) return { ok: true, value: undefined };
+    if (!/^\d+$/.test(trimmed)) return { ok: false };
+    return { ok: true, value: Number(trimmed) };
+  };
+
+  const ccFrtEntry = parseFrt(ccFrt);
+  const mstFrtEntry = parseFrt(mstFrt);
+  const frtInvalid = isOwner && (!ccFrtEntry.ok || !mstFrtEntry.ok);
+  const ccFrtChanged = isOwner && ccFrtEntry.ok && ccFrtEntry.value !== disruption.ccFrtMins;
+  const mstFrtChanged = isOwner && mstFrtEntry.ok && mstFrtEntry.value !== disruption.mstFrtMins;
+
   const changed =
     bucket !== disruption.bucket ||
     trimmedTicket !== (disruption.ticketId ?? '').trim() ||
-    (showOemCoverage && oemCoverage !== (disruption.oemCoverage ?? ''));
+    (showOemCoverage && oemCoverage !== (disruption.oemCoverage ?? '')) ||
+    ccFrtChanged ||
+    mstFrtChanged;
+  /** Names only what this modal is actually offering to the person reading it. */
+  const heading = (() => {
+    const fields = ['Bucket', 'Ticket ID'];
+    if (showOemCoverage) fields.push('OEM Coverage');
+    if (isOwner) fields.push('Response Times');
+    const last = fields.pop() as string;
+    return `Edit ${fields.join(', ')} & ${last}`;
+  })();
+
   // Blank is what the server refuses for a Resolved by OEM record, so say so
   // here rather than letting the save bounce back with an error.
   const oemCoverageMissing = showOemCoverage && !oemCoverage;
@@ -80,6 +128,11 @@ export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
       return;
     }
 
+    if (frtInvalid) {
+      setError('Response times are in whole minutes. Leave a box empty to clear the figure.');
+      return;
+    }
+
     setIsSaving(true);
     try {
       const res = await fetch(`/api/disruptions/${encodeURIComponent(disruption.disruptionId)}`, {
@@ -91,6 +144,11 @@ export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
           // that was entered by mistake actually clears it.
           ticketId: trimmedTicket,
           ...(showOemCoverage ? { oemCoverage } : {}),
+          // null, not undefined: JSON.stringify drops undefined, and the server
+          // reads a missing key as "leave it alone". null is how a figure is
+          // actually cleared.
+          ...(ccFrtChanged ? { ccFrtMins: ccFrtEntry.value ?? null } : {}),
+          ...(mstFrtChanged ? { mstFrtMins: mstFrtEntry.value ?? null } : {}),
           updatedBy: currentUser || disruption.ccPoc || 'Operator',
         }),
       });
@@ -115,9 +173,7 @@ export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
         {/* Header */}
         <div className="flex shrink-0 items-start justify-between border-b border-slate-200 p-4">
           <div>
-            <h2 className="text-base font-bold text-slate-900">
-              Edit Bucket, Ticket ID{showOemCoverage ? ' & OEM Coverage' : ''}
-            </h2>
+            <h2 className="text-base font-bold text-slate-900">{heading}</h2>
             <p className="mt-0.5 font-mono text-xs text-slate-500">{disruption.disruptionId}</p>
           </div>
           <button
@@ -231,6 +287,81 @@ export const EditDetailsModal: React.FC<EditDetailsModalProps> = ({
                   : oemCoverage !== (disruption.oemCoverage ?? '')
                   ? `Was ${disruption.oemCoverage || 'not set'}`
                   : 'How this OEM job was paid for.'}
+              </p>
+            </div>
+          )}
+
+          {/*
+            Owner only. Everything above is a field somebody typed and can retype;
+            these two are figures the app worked out, so changing one is an
+            override and sits with the admin account alone.
+          */}
+          {isOwner && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+              <div className="mb-2 flex items-center gap-1.5">
+                <Timer className="h-3.5 w-3.5 text-amber-700" />
+                <p className="text-xs font-semibold text-amber-900">Correct the response times</p>
+                <span className="ml-auto rounded bg-amber-200/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-900">
+                  Admin only
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="edit-cc-frt" className="mb-1 block text-[10px] font-semibold text-slate-700">
+                    CC FRT (min)
+                  </label>
+                  <input
+                    id="edit-cc-frt"
+                    type="text"
+                    inputMode="numeric"
+                    value={ccFrt}
+                    onChange={(e) => setCcFrt(e.target.value)}
+                    placeholder="Not reported"
+                    autoComplete="off"
+                    className={`w-full rounded-lg border bg-white px-2.5 py-2 font-mono text-xs focus:ring-2 ${
+                      ccFrtEntry.ok
+                        ? 'border-slate-300 focus:border-amber-500 focus:ring-amber-500'
+                        : 'border-rose-400 bg-rose-50/60 text-rose-700 focus:ring-rose-500'
+                    }`}
+                  />
+                  <p className="mt-1 text-[10px] text-slate-500">
+                    {!ccFrtEntry.ok
+                      ? 'Whole minutes only.'
+                      : ccFrtChanged
+                      ? `Was ${disruption.ccFrtMins === undefined ? 'not set' : `${disruption.ccFrtMins} min`}`
+                      : 'Derived from the start time and when CC logged it.'}
+                  </p>
+                </div>
+                <div>
+                  <label htmlFor="edit-mst-frt" className="mb-1 block text-[10px] font-semibold text-slate-700">
+                    RAC / MST FRT (min)
+                  </label>
+                  <input
+                    id="edit-mst-frt"
+                    type="text"
+                    inputMode="numeric"
+                    value={mstFrt}
+                    onChange={(e) => setMstFrt(e.target.value)}
+                    placeholder="Not reported"
+                    autoComplete="off"
+                    className={`w-full rounded-lg border bg-white px-2.5 py-2 font-mono text-xs focus:ring-2 ${
+                      mstFrtEntry.ok
+                        ? 'border-slate-300 focus:border-amber-500 focus:ring-amber-500'
+                        : 'border-rose-400 bg-rose-50/60 text-rose-700 focus:ring-rose-500'
+                    }`}
+                  />
+                  <p className="mt-1 text-[10px] text-slate-500">
+                    {!mstFrtEntry.ok
+                      ? 'Whole minutes only.'
+                      : mstFrtChanged
+                      ? `Was ${disruption.mstFrtMins === undefined ? 'not set' : `${disruption.mstFrtMins} min`}`
+                      : 'Reported once, when the record reached RAC Visited.'}
+                  </p>
+                </div>
+              </div>
+              <p className="mt-2 text-[10px] leading-relaxed text-amber-900/80">
+                Empty a box to put the figure back to not reported. The old value is written into the audit
+                trail against your name — overriding a derived number leaves no other trace.
               </p>
             </div>
           )}
